@@ -270,7 +270,7 @@ class DenoisingDiffusionLitModule(LightningModule):
         self.ema_params=ema_params_rates
         
         
-        microbatch = self.kwargs.get('microbatch', -1)
+        microbatch = self.kwargs.get('microbatch')
         self.microbatch = microbatch if microbatch > 0 else self.batch_size
         self.global_batch = self.batch_size * dist.get_world_size()
 

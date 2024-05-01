@@ -33,7 +33,7 @@ diffusion_cfg:
   learn_sigma: True
   sigma_small: False
   noise_schedule: "cosine"
-  use_kl: False
+  use_kl: True
   predict_xstart: False
   rescale_timesteps: True
   rescale_learned_sigmas: True

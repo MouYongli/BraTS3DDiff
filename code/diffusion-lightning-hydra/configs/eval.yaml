@@ -16,7 +16,7 @@ tags: ["dev"]
 
 # passing checkpoint path is necessary for evaluation
 #ckpt_path: "/home/sanyal/DATA/models/guided-diff-wts/64x64_diffusion.pt"
-ckpt_path: "/home/sanyal/DATA/diffusion-lightning-hydra-out/logs/train/runs/2024-04-30_19-01-17/checkpoints/model020000.pt"
+ckpt_path: "/home/sanyal/DATA/models/improved-diff-weights/cifar10_uncond_50M_500K.pt"
 
 extra_cfg:
   clip_denoised: True

@@ -33,7 +33,7 @@ task_name: "train"
 # tags to help you identify your experiments
 # you can overwrite this in experiment configs
 # overwrite from command line with `python train.py tags="[first_tag, second_tag]"`
-tags: ["dev"]
+tags: ["dev",'Importance-sampled VLB','CIFAR']
 
 # set False to skip model training
 train: True
@@ -43,17 +43,18 @@ train: True
 test: False
 
 # simply provide checkpoint path to resume training
+#ckpt_path: "/home/sanyal/DATA/models/improved-diff-weights/cifar10_uncond_50M_500K.pt"
 ckpt_path: null
 
 # seed for random number generators in pytorch, numpy and python.random
 seed: null
 
 extra_cfg:
-  schedule_sampler: "uniform"
+  schedule_sampler: "loss-second-moment"
 
   ema_rate: "0.9999"
 
-  microbatch: -1
+  microbatch: 16
 
   batch_size: ${data.batch_size}
 

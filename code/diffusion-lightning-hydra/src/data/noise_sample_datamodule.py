@@ -53,7 +53,7 @@ class NoiseSampleDataModule(LightningDataModule):
         class_cond:bool=False,
         n_classes:int=None,
         num_samples:int=10000,
-        num_workers: int = 0,
+        num_workers: int = 8,
         pin_memory: bool = False,
     ) -> None:
         """Initialize a `MNISTDataModule`.
