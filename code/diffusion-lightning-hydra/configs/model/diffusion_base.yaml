@@ -1,0 +1,45 @@
+_target_: src.models.diffusion_module.DenoisingDiffusionLitModule
+
+optimizer:
+  _target_: torch.optim.AdamW
+  _partial_: true
+  lr: 1e-4
+  weight_decay: 0.0
+
+scheduler: null
+
+net_cfg:
+  image_size: ${data.image_size}
+  num_channels: 128
+  num_res_blocks: 2
+  channel_mult: ""
+  learn_sigma: False
+  class_cond: ${data.class_cond}
+  num_classes: ${data.n_classes}
+  use_checkpoint: False
+  attention_resolutions: "16"
+  num_heads: 1
+  num_head_channels: -1
+  num_heads_upsample: -1
+  use_scale_shift_norm: True
+  dropout: 0
+  resblock_updown: False
+  use_fp16: False
+  use_new_attention_order: False
+
+
+diffusion_cfg:
+  steps: 1000
+  learn_sigma: False
+  sigma_small: False
+  noise_schedule: "linear"
+  use_kl: False
+  predict_xstart: False
+  rescale_timesteps: False
+  rescale_learned_sigmas: False
+  timestep_respacing: ""
+
+
+
+# compile model for faster training with pytorch 2.0
+compile: false

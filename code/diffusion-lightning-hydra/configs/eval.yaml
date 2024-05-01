@@ -1,0 +1,32 @@
+# @package _global_
+
+defaults:
+  - _self_
+  - data: noise_sample_cifar
+  - model: diffusion_cifar
+  - logger: null
+  - trainer: default
+  - paths: default
+  - extras: default
+  - hydra: default
+
+task_name: "eval"
+
+tags: ["dev"]
+
+# passing checkpoint path is necessary for evaluation
+#ckpt_path: "/home/sanyal/DATA/models/guided-diff-wts/64x64_diffusion.pt"
+ckpt_path: "/home/sanyal/DATA/diffusion-lightning-hydra-out/logs/train/runs/2024-04-30_19-01-17/checkpoints/model020000.pt"
+
+extra_cfg:
+  clip_denoised: True
+
+  num_samples: ${data.num_samples}
+
+  batch_size: ${data.batch_size}
+
+  use_ddim: False
+
+  output_dir: ${hydra:runtime.output_dir}
+
+  checkpoint: ${ckpt_path}
