@@ -63,8 +63,6 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
 
-    cfg.extra_cfg['checkpoint'] = cfg.ckpt_path
-
     log.info(f"Instantiating model <{cfg.model._target_}>")
     model: LightningModule = hydra.utils.instantiate(cfg.model,kwargs=cfg.extra_cfg)
 
@@ -92,7 +90,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     if cfg.get("train"):
         log.info("Starting training!")
-        trainer.fit(model=model, datamodule=datamodule)
+        trainer.fit(model=model, datamodule=datamodule,ckpt_path=cfg.get("ckpt_path"))
 
     train_metrics = trainer.callback_metrics
 

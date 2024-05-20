@@ -21,7 +21,7 @@ from src.models.diffusion.resample import ScheduleSampler, LossAwareSampler
 
 from src.models.utils.nn import update_ema, mean_flat
 from src.models.utils import dist_util, logger
-from src.models.utils.utils import state_dict_to_params
+from src.models.utils.utils import state_dict_to_params, params_to_state_dict
 
 from src.models.utils.create import create_gaussian_diffusion,create_model,create_named_schedule_sampler
 
@@ -79,69 +79,64 @@ class DenoisingDiffusionLitModule(LightningModule):
         self.save_hyperparameters(logger=False)
 
         self.kwargs = kwargs
-        self.log_interval = self.kwargs.get('log_interval', 10)
-        self.resume_step = 0
-        self.checkpoint = self.kwargs.get('checkpoint', "")
-        self.batch_size = self.kwargs.get('batch_size')
+        self.log_interval = self.hparams.kwargs.log_interval
+        self.batch_size = self.hparams.kwargs.batch_size
 
         logger.log("creating model and diffusion...")
 
         self.net: UNetModel = create_model(**net_cfg)
         self.diffusion: SpacedDiffusion = create_gaussian_diffusion(**diffusion_cfg)
 
-        self.net_params = list(self.net.parameters())
+        ema_rate = self.hparams.kwargs.ema_rate
+        self.ema_rate = (
+            [ema_rate]
+            if isinstance(ema_rate, float)
+            else [float(x) for x in ema_rate.split(",")]
+        )
+        self.ema_params = [
+            copy.deepcopy(list(self.net.parameters()))
+            for _ in range(len(self.ema_rate))
+        ]
 
-        self._load_parameters()
- 
         self.train_loss = MeanMetric()
         self.automatic_optimization = False
 
 
-    def _load_ema_parameters(self, rate):
-        ema_params = copy.deepcopy(self.net_params)
+    def on_load_checkpoint(self, checkpoint):
+        self.ema_params = [state_dict_to_params(self.net,ema_state_dict) for ema_state_dict in checkpoint['ema_state_dicts']]
 
-        main_checkpoint = self.checkpoint
-        ema_checkpoint = find_ema_checkpoint(main_checkpoint, self.resume_step, rate)
-        if ema_checkpoint:
-            if dist.get_rank() == 0:
-                logger.log(f"loading EMA from checkpoint: {ema_checkpoint}...")
-                state_dict = dist_util.load_state_dict(
-                    ema_checkpoint, map_location=self.device,
-                )
-                ema_params = state_dict_to_params(self.net,state_dict)
-
-        #dist_util.sync_params(ema_params)
-        return ema_params
+    def on_save_checkpoint(self, checkpoint):
+        checkpoint["ema_state_dicts"] = [params_to_state_dict(self.net,params) for params in self.ema_params]
 
 
-    def _get_optimizer_state(self):
-        main_checkpoint = self.checkpoint
-        opt_checkpoint = bf.join(
-            bf.dirname(main_checkpoint), f"opt{self.resume_step:06}.pt"
-        )
-        if bf.exists(opt_checkpoint):
-            logger.log(f"loading optimizer state from checkpoint: {opt_checkpoint}")
-            state_dict = dist_util.load_state_dict(
-                opt_checkpoint, map_location=self.device,
-            )
-            return state_dict
-            #opt = self.optimizers().optimizer
-            #self.opt.load_state_dict(state_dict)
+    def on_train_start(self) -> None:
+        """Lightning hook that is called when training begins."""
+        # by default lightning executes validation step sanity checks before training starts,
+        # so it's worth to make sure validation metrics don't store results from these checks
 
-
-    def _load_parameters(self):
-        if self.checkpoint:
-            self.resume_step = parse_resume_step_from_filename(self.checkpoint)
-            if dist.get_rank() == 0:
-                logger.log(f"loading model from checkpoint: {self.checkpoint}...")
-                self.net.load_state_dict(
-                    dist_util.load_state_dict(
-                        self.checkpoint, map_location=self.device,
-                    )
-                )
-
+        logger.log("Started Training...")
+        #self._load_and_sync_parameters()
         #dist_util.sync_params(self.net.parameters())
+        schedule_sampler = self.hparams.kwargs.schedule_sampler
+        self.schedule_sampler: ScheduleSampler = create_named_schedule_sampler(schedule_sampler, self.diffusion)
 
+        #on_train_start, self.net.parameters() tensors are in device (cuda)
+        #so, move ema_params tensors to same device (cuda) as net_params, 
+        # and then detach them so no gradient backprop on ema params
+        ema_params_rates = []
+        for rate, params in zip(self.ema_rate, self.ema_params):
+            ema_params_rate = []
+            for targ, src in zip(params, list(self.net.parameters())):
+                targ = targ.to(src).detach()
+                ema_params_rate.append(targ)
+
+            #dist_util.sync_params(ema_params_rate)
+            ema_params_rates.append(ema_params_rate)
+        self.ema_params=ema_params_rates
+
+        microbatch = self.hparams.kwargs.microbatch
+        self.microbatch = microbatch if microbatch > 0 else self.batch_size
+        self.global_batch = self.batch_size * dist.get_world_size()
 
 
     def forward(self, x_start, t, model_kwargs=None, noise=None):
@@ -219,61 +214,6 @@ class DenoisingDiffusionLitModule(LightningModule):
         return terms
 
 
-    def on_train_start(self) -> None:
-        """Lightning hook that is called when training begins."""
-        # by default lightning executes validation step sanity checks before training starts,
-        # so it's worth to make sure validation metrics don't store results from these checks
-
-        logger.log("Started Training...")
-
-        #self._load_and_sync_parameters()
-        #dist_util.sync_params(self.net.parameters())
-
-        schedule_sampler = self.kwargs.get('schedule_sampler','loss-second-moment')
-        self.schedule_sampler: ScheduleSampler = create_named_schedule_sampler(schedule_sampler, self.diffusion)
-
-        ema_rate = self.kwargs.get('ema_rate', 0.999)
-        self.ema_rate = (
-            [ema_rate]
-            if isinstance(ema_rate, float)
-            else [float(x) for x in ema_rate.split(",")]
-        )
-
-        if self.resume_step:
-            #self._load_optimizer_state()
-            # Model was resumed, either due to a restart or a checkpoint
-            # being specified at the command line.
-            self.ema_params = [
-                self._load_ema_parameters(rate) for rate in self.ema_rate
-            ]
-        else:
-            self.ema_params = [
-                copy.deepcopy(self.net_params)
-                for _ in range(len(self.ema_rate))
-            ]
-
-        #on_train_start, self.net_params tensors are in device (cuda)
-        #so, move ema_params tensors to same device (cuda) as net_params, 
-        # and then detach them so no gradient backprop on ema params
-        ema_params_rates = []
-        for rate, params in zip(self.ema_rate, self.ema_params):
-            ema_params_rate = []
-            for targ, src in zip(params, self.net_params):
-                targ = targ.to(src).detach()
-                ema_params_rate.append(targ)
-
-            dist_util.sync_params(ema_params_rate)
-            ema_params_rates.append(ema_params_rate)
-
-        self.ema_params=ema_params_rates
-        
-        
-        microbatch = self.kwargs.get('microbatch')
-        self.microbatch = microbatch if microbatch > 0 else self.batch_size
-        self.global_batch = self.batch_size * dist.get_world_size()
-
-
-
     def model_step(
         self, batch: Tuple[th.Tensor, Any]
     ) -> th.Tensor:
@@ -292,22 +232,11 @@ class DenoisingDiffusionLitModule(LightningModule):
                 k: v[i : i + self.microbatch]
                 for k, v in cond.items()
             }
-            last_batch = (i + self.microbatch) >= data.shape[0]
-            #t, weights = self.schedule_sampler.sample(micro.shape[0],self.device)
+            #last_batch = (i + self.microbatch) >= data.shape[0]
+
             t, weights = self.schedule_sampler.sample(micro)
 
-            compute_losses = functools.partial(
-                self.forward,
-                micro,
-                t,
-                model_kwargs=micro_cond,
-            )
-
-            if last_batch or not self.use_ddp:
-                losses = compute_losses()
-            else:       
-                with self.trainer.model.no_sync():
-                    losses = compute_losses()
+            losses = self.forward(micro,t,model_kwargs=micro_cond)
 
             if isinstance(self.schedule_sampler, LossAwareSampler):
                 self.schedule_sampler.update_with_local_losses(
@@ -318,9 +247,9 @@ class DenoisingDiffusionLitModule(LightningModule):
             log_loss_dict(
                 self.diffusion, t, {k: v * weights for k, v in losses.items()}
             )
-            
+
             self.manual_backward(loss)
-        
+
         return loss
 
 
@@ -345,6 +274,8 @@ class DenoisingDiffusionLitModule(LightningModule):
         # update and log metrics
         self.train_loss(loss)
         self.log("train/loss", self.train_loss, on_step=True, on_epoch=False, prog_bar=True)
+        self.log("global_step", self.global_step, on_step=True, on_epoch=False, prog_bar=True)
+
         self.log_step()
         # return loss or backpropagation will fail
         return loss
@@ -358,7 +289,7 @@ class DenoisingDiffusionLitModule(LightningModule):
     
     def _update_ema(self):
         for rate, params in zip(self.ema_rate, self.ema_params):
-            update_ema(params, self.net_params, rate=rate)
+            update_ema(params, list(self.net.parameters()), rate=rate)
 
     def sample_loop_progressive(
         self,
@@ -496,8 +427,8 @@ class DenoisingDiffusionLitModule(LightningModule):
 
 
     def log_step(self):
-        logger.logkv("step", self.trainer.global_step + self.resume_step)
-        logger.logkv("samples", (self.trainer.global_step + self.resume_step + 1) * self.global_batch)
+        logger.logkv("step", self.global_step)
+        logger.logkv("samples", (self.global_step+ 1) * self.global_batch)
 
 
 
@@ -515,7 +446,6 @@ class DenoisingDiffusionLitModule(LightningModule):
 
         self.use_ddp = isinstance(self.trainer.strategy, lightning.pytorch.strategies.ddp.DDPStrategy)
 
-    
 
     def test_step(self, batch: Tuple[th.Tensor, Any], batch_idx: int) -> None:
         """Perform a single test step on a batch of data from the test set.
@@ -536,10 +466,7 @@ class DenoisingDiffusionLitModule(LightningModule):
 
         :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
         """
-        optimizer = self.hparams.optimizer(params=self.net_params)
-        if self.resume_step:
-            optimizer.load_state_dict(self._get_optimizer_state())
-
+        optimizer = self.hparams.optimizer(params=self.parameters())
         if self.hparams.scheduler is not None:
             scheduler = self.hparams.scheduler(optimizer=optimizer)
             return {
@@ -562,29 +489,7 @@ def log_loss_dict(diffusion, ts, losses):
             quartile = int(4 * sub_t / diffusion.num_timesteps)
             logger.logkv_mean(f"{key}_q{quartile}", sub_loss)
             
-def parse_resume_step_from_filename(filename):
-    """
-    Parse filenames of the form path/to/modelNNNNNN.pt, where NNNNNN is the
-    checkpoint's number of steps.
-    """
-    split = filename.split("model")
-    if len(split) < 2:
-        return 0
-    split1 = split[-1].split(".")[0]
-    try:
-        return int(split1)
-    except ValueError:
-        return 0
 
-
-def find_ema_checkpoint(main_checkpoint, step, rate):
-    if main_checkpoint is None:
-        return None
-    filename = f"ema_{rate}_{(step):06d}.pt"
-    path = bf.join(bf.dirname(main_checkpoint), filename)
-    if bf.exists(path):
-        return path
-    return None
 
 
 if __name__ == "__main__":
