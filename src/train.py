@@ -7,8 +7,8 @@ import torch
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
-from src.guided_diffusion import logger as gd_logger
-from src.guided_diffusion import dist_util
+from src.models.utils import logger as gd_logger
+from src.models.utils import dist_util
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #

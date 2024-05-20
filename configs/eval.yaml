@@ -27,6 +27,8 @@ extra_cfg:
 
   use_ddim: False
 
+  eta: null
+
   output_dir: ${hydra:runtime.output_dir}
 
   checkpoint: ${ckpt_path}

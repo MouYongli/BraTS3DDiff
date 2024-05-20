@@ -1,40 +1,9 @@
-from typing import Any, Dict, Tuple
+from src.models.networks.denoising_unet.unet import UNetModel
+from src.models.diffusion.respace import SpacedDiffusion, space_timesteps
+from src.models.diffusion.enums import ModelMeanType, ModelVarType, LossType
+from src.models.diffusion.noise_schedule import get_named_beta_schedule
+from src.models.diffusion.resample import ScheduleSampler, UniformSampler, LossAwareSampler, LossSecondMomentResampler
 
-import torch
-from lightning import LightningModule
-from torchmetrics import MaxMetric, MeanMetric
-from torchmetrics.classification.accuracy import Accuracy
-
-from src.guided_diffusion import gaussian_diffusion as gd
-from src.guided_diffusion.respace import SpacedDiffusion, space_timesteps
-from src.guided_diffusion.unet import SuperResModel, UNetModel, EncoderUNetModel
-from src.guided_diffusion.resample import ScheduleSampler
-
-from dataclasses import dataclass, Field
-
-from src.guided_diffusion.resample import create_named_schedule_sampler
-
-
-def zero_grad(params):
-    for param in params:
-        # Taken from https://pytorch.org/docs/stable/_modules/torch/optim/optimizer.html#Optimizer.add_param_group
-        if param.grad is not None:
-            param.grad.detach_()
-            param.grad.zero_()
-
-def params_to_state_dict(net,params):
-    state_dict = net.state_dict()
-    for i, (name, _value) in enumerate(net.named_parameters()):
-        assert name in state_dict
-        state_dict[name] = params[i]
-    return state_dict
-
-
-def state_dict_to_params(net,state_dict):
-    params = [state_dict[name] for name, _ in net.named_parameters()]
-    return params
-
-    
 def create_model(
     image_size:int=64,
     num_channels:int=128,
@@ -102,8 +71,6 @@ def create_model(
     )
 
 
-
-
 def create_gaussian_diffusion(
     steps: int=1000,
     learn_sigma: bool=False,
@@ -117,14 +84,13 @@ def create_gaussian_diffusion(
 
 )-> SpacedDiffusion:
 
-
-    betas = gd.get_named_beta_schedule(noise_schedule, steps)
+    betas = get_named_beta_schedule(noise_schedule, steps)
     if use_kl:
-        loss_type = gd.LossType.RESCALED_KL
+        loss_type = LossType.RESCALED_KL
     elif rescale_learned_sigmas:
-        loss_type = gd.LossType.RESCALED_MSE
+        loss_type = LossType.RESCALED_MSE
     else:
-        loss_type = gd.LossType.MSE
+        loss_type = LossType.MSE
     if not timestep_respacing:
         timestep_respacing = [steps]
 
@@ -132,19 +98,32 @@ def create_gaussian_diffusion(
         use_timesteps=space_timesteps(steps, timestep_respacing),
         betas=betas,
         model_mean_type=(
-            gd.ModelMeanType.EPSILON if not predict_xstart else gd.ModelMeanType.START_X
+            ModelMeanType.EPSILON if not predict_xstart else ModelMeanType.START_X
         ),
         model_var_type=(
             (
-                gd.ModelVarType.FIXED_LARGE
+                ModelVarType.FIXED_LARGE
                 if not sigma_small
-                else gd.ModelVarType.FIXED_SMALL
+                else ModelVarType.FIXED_SMALL
             )
             if not learn_sigma
-            else gd.ModelVarType.LEARNED_RANGE
+            else ModelVarType.LEARNED_RANGE
         ),
         loss_type=loss_type,
         rescale_timesteps=rescale_timesteps,
     )
 
 
+def create_named_schedule_sampler(name, diffusion):
+    """
+    Create a ScheduleSampler from a library of pre-defined samplers.
+
+    :param name: the name of the sampler.
+    :param diffusion: the diffusion object to sample for.
+    """
+    if name == "uniform":
+        return UniformSampler(diffusion)
+    elif name == "loss-second-moment":
+        return LossSecondMomentResampler(diffusion)
+    else:
+        raise NotImplementedError(f"unknown schedule sampler: {name}")

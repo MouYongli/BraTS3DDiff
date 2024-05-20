@@ -12,7 +12,7 @@ from tqdm.auto import tqdm
 from .components.image_dataset import ImageDataset
 import blobfile as bf
 from mpi4py import MPI
-from src.guided_diffusion import logger
+from src.models.utils import logger
 
 def _list_image_files_recursively(data_dir):
     results = []
@@ -257,4 +257,4 @@ class ImageDataModule(LightningDataModule):
 
 
 if __name__ == "__main__":
-    _ = CIFAR10DataModule()
+    _ = ImageDataModule()

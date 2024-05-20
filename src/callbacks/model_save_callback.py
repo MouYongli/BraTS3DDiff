@@ -1,14 +1,14 @@
 import torch as th
 import lightning as L
 import os
-from src.guided_diffusion import logger
-from models.model_utils import params_to_state_dict
+from models.utils import logger
+from models.utils.utils import params_to_state_dict
 import blobfile as bf
 
 
 class ModelSaveCallback(L.Callback):
     '''
-    samples noise and uses trained model to predict less noisy images
+    ModelSaveCallback
     '''
 
     def __init__(self, save_dir:str,save_interval:int=10000) -> None:

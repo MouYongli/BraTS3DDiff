@@ -6,7 +6,7 @@ defaults:
 
 model_save_callback:
   save_dir: ${paths.output_dir}/checkpoints
-  save_interval: 10000
+  save_interval: 20000
 
 
 early_stopping:

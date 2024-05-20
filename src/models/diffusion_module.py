@@ -12,19 +12,18 @@ from torchmetrics import MaxMetric, MeanMetric
 from torchmetrics.classification.accuracy import Accuracy
 import torch.distributed as dist
 
-from src.guided_diffusion import gaussian_diffusion as gd
-from src.guided_diffusion.respace import SpacedDiffusion, space_timesteps
-from src.guided_diffusion.unet import SuperResModel, UNetModel, EncoderUNetModel
-from src.guided_diffusion.resample import ScheduleSampler
+from src.models.diffusion import gaussian_diffusion as gd
+from src.models.diffusion.enums import ModelMeanType, ModelVarType, LossType
+from src.models.networks.denoising_unet.unet import UNetModel
+from src.models.diffusion.respace import SpacedDiffusion
+from src.models.diffusion.enums import ModelMeanType, ModelVarType, LossType
+from src.models.diffusion.resample import ScheduleSampler, LossAwareSampler
 
-from dataclasses import dataclass, Field
-from .model_utils import create_gaussian_diffusion, create_model, zero_grad, state_dict_to_params
-from src.guided_diffusion.resample import create_named_schedule_sampler, LossAwareSampler
-from src.guided_diffusion.nn import update_ema
-from src.guided_diffusion import logger, dist_util
+from src.models.utils.nn import update_ema, mean_flat
+from src.models.utils import dist_util, logger
+from src.models.utils.utils import state_dict_to_params
 
-
-
+from src.models.utils.create import create_gaussian_diffusion,create_model,create_named_schedule_sampler
 
 class DenoisingDiffusionLitModule(LightningModule):
     """Example of a `LightningModule` for denosiing diffuiosn
@@ -97,7 +96,7 @@ class DenoisingDiffusionLitModule(LightningModule):
         self.train_loss = MeanMetric()
         self.automatic_optimization = False
 
- 
+
     def _load_ema_parameters(self, rate):
         ema_params = copy.deepcopy(self.net_params)
 
@@ -142,83 +141,84 @@ class DenoisingDiffusionLitModule(LightningModule):
                 )
 
         #dist_util.sync_params(self.net.parameters())
-        
 
-    def forward(self, x: th.Tensor) -> th.Tensor:
-        """Perform a forward pass through the model `self.net`.
 
-        :param x: A tensor of images.
-        :return: A tensor of logits.
+
+    def forward(self, x_start, t, model_kwargs=None, noise=None):
         """
-        pass
-    
-    
-    def on_predict_start(self) -> None:
-        #generated sampled images, and
-        #their class labels
-        self.all_images = []
-        self.all_labels = []
+        Compute training losses for a single timestep.
 
+        :param x_start: the [N x C x ...] tensor of inputs.
+        :param t: a batch of timestep indices.
+        :param model_kwargs: if not None, a dict of extra keyword arguments to
+            pass to the model. This can be used for conditioning.
+        :param noise: if specified, the specific Gaussian noise to try to remove.
+        :return: a dict with the key "loss" containing a tensor of shape [N].
+                 Some mean or variance settings may also have other keys.
+        """
+        if model_kwargs is None:
+            model_kwargs = {}
+        if noise is None:
+            noise = th.randn_like(x_start)
+        x_t = self.diffusion.q_sample(x_start, t, noise=noise)
 
-    def on_predict_end(self) -> None:
-        num_samples = self.hparams.kwargs.num_samples
-        class_cond = self.hparams.net_cfg.class_cond
-        
-        arr = np.concatenate(self.all_images, axis=0)
-        arr = arr[: num_samples]
-        if class_cond:
-            label_arr = np.concatenate(self.all_labels, axis=0)
-            label_arr = label_arr[: num_samples]
-        if dist.get_rank() == 0:
-            shape_str = "x".join([str(x) for x in arr.shape])
-            out_path = os.path.join(self.hparams.kwargs.output_dir, f"samples_{shape_str}.npz")
-            logger.log(f"saving to {out_path}")
-            if class_cond:
-                np.savez(out_path, arr, label_arr)
+        terms = {}
+
+        if self.diffusion.loss_type == LossType.KL or self.diffusion.loss_type == LossType.RESCALED_KL:
+            terms["loss"] = self.diffusion._vb_terms_bpd(
+                model=self.net,
+                x_start=x_start,
+                x_t=x_t,
+                t=t,
+                clip_denoised=False,
+                model_kwargs=model_kwargs,
+            )["output"]
+            if self.diffusion.loss_type == LossType.RESCALED_KL:
+                terms["loss"] *= self.diffusion.num_timesteps
+        elif self.diffusion.loss_type == LossType.MSE or self.diffusion.loss_type == LossType.RESCALED_MSE:
+            model_output = self.net(x_t, self.diffusion._scale_timesteps(t), **model_kwargs)
+
+            if self.diffusion.model_var_type in [
+                ModelVarType.LEARNED,
+                ModelVarType.LEARNED_RANGE,
+            ]:
+                B, C = x_t.shape[:2]
+                assert model_output.shape == (B, C * 2, *x_t.shape[2:])
+                model_output, model_var_values = th.split(model_output, C, dim=1)
+                # Learn the variance using the variational bound, but don't let
+                # it affect our mean prediction.
+                frozen_out = th.cat([model_output.detach(), model_var_values], dim=1)
+                terms["vb"] = self.diffusion._vb_terms_bpd(
+                    model=lambda *args, r=frozen_out: r,
+                    x_start=x_start,
+                    x_t=x_t,
+                    t=t,
+                    clip_denoised=False,
+                )["output"]
+                if self.diffusion.loss_type == LossType.RESCALED_MSE:
+                    # Divide by 1000 for equivalence with initial implementation.
+                    # Without a factor of 1/1000, the VB term hurts the MSE term.
+                    terms["vb"] *= self.diffusion.num_timesteps / 1000.0
+
+            target = {
+                ModelMeanType.PREVIOUS_X: self.diffusion.q_posterior_mean_variance(
+                    x_start=x_start, x_t=x_t, t=t
+                )[0],
+                ModelMeanType.START_X: x_start,
+                ModelMeanType.EPSILON: noise,
+            }[self.diffusion.model_mean_type]
+            assert model_output.shape == target.shape == x_start.shape
+            terms["mse"] = mean_flat((target - model_output) ** 2)
+            if "vb" in terms:
+                terms["loss"] = terms["mse"] + terms["vb"]
             else:
-                np.savez(out_path, arr)
+                terms["loss"] = terms["mse"]
+        else:
+            raise NotImplementedError(self.diffusion.loss_type)
 
-        dist.barrier()
-        logger.log("sampling complete")
+        return terms
 
-    
-    def predict_step(self, batch: Tuple[th.Tensor, Any]):
-        
-        noise, cond = batch
-        
-        use_ddim = self.hparams.kwargs.use_ddim
-        sample_fn = (
-            self.diffusion.p_sample_loop if not use_ddim else self.diffusion.ddim_sample_loop
-        )
-        im_size = self.hparams.net_cfg.image_size
-        sample = sample_fn(
-            self.net,
-            (noise.shape[0], 3, im_size, im_size),
-            noise=noise,
-            clip_denoised=self.kwargs.clip_denoised,
-            model_kwargs=cond,
-        )
-        sample = ((sample + 1) * 127.5).clamp(0, 255).to(th.uint8)
-        sample = sample.permute(0, 2, 3, 1)
-        sample = sample.contiguous()
 
-        gathered_samples = [th.zeros_like(sample) for _ in range(dist.get_world_size())]
-        dist.all_gather(gathered_samples, sample)  # gather not supported with NCCL
-        self.all_images.extend([sample.cpu().numpy() for sample in gathered_samples])
-
-        gathered_labels = None
-        if self.hparams.net_cfg.class_cond:
-            gathered_labels = [
-                th.zeros_like(cond['y']) for _ in range(dist.get_world_size())
-            ]
-            dist.all_gather(gathered_labels, cond['y'])
-            self.all_labels.extend([labels.cpu().numpy() for labels in gathered_labels])
-
-        logger.log(f"created {len(self.all_images) * self.batch_size} samples")
-        return gathered_samples, gathered_labels
-    
-    
-    
     def on_train_start(self) -> None:
         """Lightning hook that is called when training begins."""
         # by default lightning executes validation step sanity checks before training starts,
@@ -227,7 +227,7 @@ class DenoisingDiffusionLitModule(LightningModule):
         logger.log("Started Training...")
 
         #self._load_and_sync_parameters()
-        dist_util.sync_params(self.net.parameters())
+        #dist_util.sync_params(self.net.parameters())
 
         schedule_sampler = self.kwargs.get('schedule_sampler','loss-second-moment')
         self.schedule_sampler: ScheduleSampler = create_named_schedule_sampler(schedule_sampler, self.diffusion)
@@ -238,8 +238,6 @@ class DenoisingDiffusionLitModule(LightningModule):
             if isinstance(ema_rate, float)
             else [float(x) for x in ema_rate.split(",")]
         )
-
-
 
         if self.resume_step:
             #self._load_optimizer_state()
@@ -299,8 +297,7 @@ class DenoisingDiffusionLitModule(LightningModule):
             t, weights = self.schedule_sampler.sample(micro)
 
             compute_losses = functools.partial(
-                self.diffusion.training_losses,
-                self.net,
+                self.forward,
                 micro,
                 t,
                 model_kwargs=micro_cond,
@@ -308,7 +305,7 @@ class DenoisingDiffusionLitModule(LightningModule):
 
             if last_batch or not self.use_ddp:
                 losses = compute_losses()
-            else:
+            else:       
                 with self.trainer.model.no_sync():
                     losses = compute_losses()
 
@@ -362,6 +359,140 @@ class DenoisingDiffusionLitModule(LightningModule):
     def _update_ema(self):
         for rate, params in zip(self.ema_rate, self.ema_params):
             update_ema(params, self.net_params, rate=rate)
+
+    def sample_loop_progressive(
+        self,
+        shape,
+        noise=None,
+        clip_denoised=True,
+        denoised_fn=None,
+        cond_fn=None,
+        model_kwargs=None,
+        progress=False,
+        eta=None,
+        use_ddim=False,
+    ):
+        if not use_ddim:
+            assert not eta
+        if use_ddim and (not eta):
+            eta = 0.0
+
+        """
+        Use DDP/IM to sample from the model and yield intermediate samples from
+        each timestep of DDP/IM.
+
+        Same usage as p_sample_loop_progressive().
+        """
+        assert isinstance(shape, (tuple, list))
+        if noise is not None:
+            img = noise
+        else:
+            img = th.randn(*shape, device=self.device)
+        indices = list(range(self.diffusion.num_timesteps))[::-1]
+
+        # Lazy import so that we don't depend on tqdm.
+        from tqdm.auto import tqdm
+        indices = tqdm(indices)
+
+        for i in indices:
+            t = th.tensor([i] * shape[0], device=self.device)
+            with th.no_grad():
+                if use_ddim:
+                    out = self.diffusion.ddim_sample(
+                        self.net,
+                        img,
+                        t,
+                        clip_denoised=clip_denoised,
+                        denoised_fn=denoised_fn,
+                        cond_fn=cond_fn,
+                        model_kwargs=model_kwargs,
+                        eta=eta,
+                    )
+                else:
+                    out = self.diffusion.p_sample(
+                        self.net,
+                        img,
+                        t,
+                        clip_denoised=clip_denoised,
+                        denoised_fn=denoised_fn,
+                        cond_fn=cond_fn,
+                        model_kwargs=model_kwargs,
+                    )
+                img = out["sample"]
+                yield img
+
+
+    def on_predict_start(self) -> None:
+        #generated sampled images, and
+        #their class labels
+        self.all_images = []
+        self.all_labels = []
+
+
+    def predict_step(self, batch: Tuple[th.Tensor, Any]):
+
+        use_ddim = self.hparams.kwargs.use_ddim
+        eta = self.hparams.kwargs.eta
+        im_size = self.hparams.net_cfg.image_size
+
+        if not use_ddim:
+            assert not eta
+        if use_ddim and (not eta):
+            eta = 0.0
+
+        noise, cond = batch
+
+        sample = None
+        for sample_ in self.sample_loop_progressive(
+            (noise.shape[0], 3, im_size, im_size),
+            noise=noise,
+            clip_denoised=self.kwargs.clip_denoised,
+            model_kwargs=cond,
+            eta=eta,
+            use_ddim=use_ddim
+        ):
+            sample = sample_
+
+        sample = ((sample + 1) * 127.5).clamp(0, 255).to(th.uint8)
+        sample = sample.permute(0, 2, 3, 1)
+        sample = sample.contiguous()
+
+        gathered_samples = [th.zeros_like(sample) for _ in range(dist.get_world_size())]
+        dist.all_gather(gathered_samples, sample)  # gather not supported with NCCL
+        self.all_images.extend([sample.cpu().numpy() for sample in gathered_samples])
+
+        gathered_labels = None
+        if self.hparams.net_cfg.class_cond:
+            gathered_labels = [
+                th.zeros_like(cond['y']) for _ in range(dist.get_world_size())
+            ]
+            dist.all_gather(gathered_labels, cond['y'])
+            self.all_labels.extend([labels.cpu().numpy() for labels in gathered_labels])
+
+        logger.log(f"created {len(self.all_images) * self.batch_size} samples")
+        return gathered_samples, gathered_labels
+
+
+    def on_predict_end(self) -> None:
+        num_samples = self.hparams.kwargs.num_samples
+        class_cond = self.hparams.net_cfg.class_cond
+        
+        arr = np.concatenate(self.all_images, axis=0)
+        arr = arr[: num_samples]
+        if class_cond:
+            label_arr = np.concatenate(self.all_labels, axis=0)
+            label_arr = label_arr[: num_samples]
+        if dist.get_rank() == 0:
+            shape_str = "x".join([str(x) for x in arr.shape])
+            out_path = os.path.join(self.hparams.kwargs.output_dir, f"samples_{shape_str}.npz")
+            logger.log(f"saving to {out_path}")
+            if class_cond:
+                np.savez(out_path, arr, label_arr)
+            else:
+                np.savez(out_path, arr)
+
+        dist.barrier()
+        logger.log("sampling complete")
 
 
     def log_step(self):
