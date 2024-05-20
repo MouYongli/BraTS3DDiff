@@ -5,8 +5,8 @@ import rootutils
 from lightning import LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
-from src.guided_diffusion import logger as gd_logger
-from src.guided_diffusion import dist_util
+from src.utils import gd_logger
+from src.models.utils import dist_util
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
@@ -79,7 +79,7 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         log_hyperparameters(object_dict)
 
     log.info("Starting testing!")
-    trainer.predict(model=model, datamodule=datamodule)
+    trainer.predict(model=model, datamodule=datamodule,ckpt_path=cfg.get("ckpt_path"))
 
     # for predictions use trainer.predict(...)
     # predictions = trainer.predict(model=model, dataloaders=dataloaders, ckpt_path=cfg.ckpt_path)

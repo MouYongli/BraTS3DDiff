@@ -12,7 +12,7 @@ from tqdm.auto import tqdm
 from .components.image_dataset import ImageDataset
 import blobfile as bf
 from mpi4py import MPI
-from src.models.utils import logger
+from src.utils import gd_logger as logger
 
 def _list_image_files_recursively(data_dir):
     results = []
@@ -180,7 +180,6 @@ class ImageDataModule(LightningDataModule):
             )
 
 
-
     def train_dataloader(self) -> DataLoader[Any]:
         """Create and return the train dataloader.
 
@@ -203,33 +202,6 @@ class ImageDataModule(LightningDataModule):
                 shuffle=True,
             )
 
-    '''
-    def val_dataloader(self) -> DataLoader[Any]:
-        """Create and return the validation dataloader.
-
-        :return: The validation dataloader.
-        """
-        return DataLoader(
-            dataset=self.data_val,
-            batch_size=self.batch_size_per_device,
-            num_workers=self.hparams.num_workers,
-            pin_memory=self.hparams.pin_memory,
-            shuffle=False,
-        )
-
-    def test_dataloader(self) -> DataLoader[Any]:
-        """Create and return the test dataloader.
-
-        :return: The test dataloader.
-        """
-        return DataLoader(
-            dataset=self.data_test,
-            batch_size=self.batch_size_per_device,
-            num_workers=self.hparams.num_workers,
-            pin_memory=self.hparams.pin_memory,
-            shuffle=False,
-        )
-    '''
 
     def teardown(self, stage: Optional[str] = None) -> None:
         """Lightning hook for cleaning up after `trainer.fit()`, `trainer.validate()`,

@@ -7,8 +7,7 @@ import torch
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
-from src.models.utils import logger as gd_logger
-from src.models.utils import dist_util
+from src.utils import gd_logger
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
@@ -56,7 +55,6 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     if cfg.get("seed"):
         L.seed_everything(cfg.seed, workers=True)
 
-    dist_util.setup_dist()
     if cfg.extra_cfg.get("output_dir"):
         gd_logger.configure(dir=cfg.extra_cfg.output_dir)
 

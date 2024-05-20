@@ -44,7 +44,7 @@ test: False
 
 # simply provide checkpoint path to resume training
 #ckpt_path: "/home/sanyal/DATA/models/improved-diff-weights/cifar10_uncond_50M_500K.pt"
-ckpt_path: "/home/sanyal/DATA/diffusion-lightning-hydra-out/logs/train/runs/2024-05-20_16-37-09/checkpoints/model_global_step=20.0.ckpt"
+ckpt_path: null
 
 # seed for random number generators in pytorch, numpy and python.random
 seed: null

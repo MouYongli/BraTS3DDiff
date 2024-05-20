@@ -7,5 +7,5 @@ n_classes: 10
 deterministic: False
 random_crop: False
 random_flip: True
-num_workers: 32
+num_workers: 64
 pin_memory: true

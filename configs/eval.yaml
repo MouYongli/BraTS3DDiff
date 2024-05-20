@@ -16,7 +16,7 @@ tags: ["dev"]
 
 # passing checkpoint path is necessary for evaluation
 #ckpt_path: "/home/sanyal/DATA/models/guided-diff-wts/64x64_diffusion.pt"
-ckpt_path: "/home/sanyal/DATA/models/improved-diff-weights/cifar10_uncond_50M_500K.pt"
+ckpt_path: "/home/sanyal/DATA/diffusion-lightning-hydra-out/logs/train/runs/2024-05-20_17-33-02/checkpoints/model_global_step=40.0.ckpt"
 
 extra_cfg:
   clip_denoised: True
@@ -29,6 +29,7 @@ extra_cfg:
 
   eta: null
 
-  output_dir: ${hydra:runtime.output_dir}
+  log_interval: 100
 
-  checkpoint: ${ckpt_path}
+
+  output_dir: ${hydra:runtime.output_dir}
