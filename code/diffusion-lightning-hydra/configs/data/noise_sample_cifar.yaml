@@ -1,6 +1,0 @@
-_target_: src.data.noise_sample_datamodule.NoiseSampleDataModule
-batch_size: 16 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
-image_size: 32
-class_cond: True
-n_classes: 10
-num_samples: 100

@@ -1,0 +1,18 @@
+defaults:
+  - model_checkpoint
+  - model_summary
+  - rich_progress_bar
+  - _self_
+
+model_checkpoint:
+  dirpath: ${paths.output_dir}/checkpoints
+  filename: "model_{global_step}"
+  monitor: "global_step"
+  mode: "max"
+  every_n_train_steps: 10000
+  verbose: True
+  every_n_epochs: 0
+  save_top_k: 2
+
+model_summary:
+  max_depth: -1
