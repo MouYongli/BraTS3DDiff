@@ -1,13 +1,11 @@
-
 import math
 import random
 
-from PIL import Image
 import blobfile as bf
-from mpi4py import MPI
 import numpy as np
+from mpi4py import MPI
+from PIL import Image
 from torch.utils.data import DataLoader, Dataset
-
 
 
 class ImageDataset(Dataset):
@@ -16,15 +14,13 @@ class ImageDataset(Dataset):
         resolution,
         image_paths,
         classes=None,
-        shard=0,
-        num_shards=1,
         random_crop=False,
         random_flip=True,
     ):
         super().__init__()
         self.resolution = resolution
-        self.local_images = image_paths[shard:][::num_shards]
-        self.local_classes = None if classes is None else classes[shard:][::num_shards]
+        self.local_images = image_paths
+        self.local_classes = classes
         self.random_crop = random_crop
         self.random_flip = random_flip
 

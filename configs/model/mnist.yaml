@@ -1,4 +1,3 @@
-
 _target_: src.models.mnist_module.MNISTLitModule
 
 optimizer:

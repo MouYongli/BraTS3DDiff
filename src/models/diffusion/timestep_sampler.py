@@ -5,7 +5,6 @@ import torch as th
 import torch.distributed as dist
 
 
-
 class ScheduleSampler(ABC):
     """
     A distribution over timesteps in the diffusion process, intended to reduce
@@ -25,30 +24,11 @@ class ScheduleSampler(ABC):
         The weights needn't be normalized, but must be positive.
         """
 
-    def sample(self, batch_size, device):
-        """
-        Importance-sample timesteps for a batch.
-
-        :param batch_size: the number of timesteps.
-        :param device: the torch device to save to.
-        :return: a tuple (timesteps, weights):
-                 - timesteps: a tensor of timestep indices.
-                 - weights: a tensor of weights to scale the resulting losses.
-        """
-        w = self.weights()
-        p = w / np.sum(w)
-        indices_np = np.random.choice(len(p), size=(batch_size,), p=p)
-        indices = th.from_numpy(indices_np).long().to(device)
-        weights_np = 1 / (len(p) * p[indices_np])
-        weights = th.from_numpy(weights_np).float().to(device)
-        return indices, weights
-
-
     def sample(self, batch):
         """
         Importance-sample timesteps for a batch.
         same as sample(self,batch_size, device), but,
-        the signature is changed due to compaitibility 
+        the signature is changed due to compaitibility
         with lightning as no T.to(device) calls allowed
         device is inferred from batch
 
@@ -92,12 +72,12 @@ class LossAwareSampler(ScheduleSampler):
         :param local_losses: a 1D Tensor of losses.
         """
         batch_sizes = [
-            th.tensor([0], dtype=th.int32, device=local_ts.device)
+            th.tensor([0], dtype=th.int32).to(local_ts)
             for _ in range(dist.get_world_size())
         ]
         dist.all_gather(
             batch_sizes,
-            th.tensor([len(local_ts)], dtype=th.int32, device=local_ts.device),
+            th.tensor([len(local_ts)], dtype=th.int32).to(local_ts),
         )
 
         # Pad all_gather batches to be the maximum batch size.
@@ -145,7 +125,7 @@ class LossSecondMomentResampler(LossAwareSampler):
     def weights(self):
         if not self._warmed_up():
             return np.ones([self.diffusion.num_timesteps], dtype=np.float64)
-        weights = np.sqrt(np.mean(self._loss_history ** 2, axis=-1))
+        weights = np.sqrt(np.mean(self._loss_history**2, axis=-1))
         weights /= np.sum(weights)
         weights *= 1 - self.uniform_prob
         weights += self.uniform_prob / len(weights)

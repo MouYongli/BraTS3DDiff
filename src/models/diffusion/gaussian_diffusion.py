@@ -11,27 +11,25 @@ import math
 import numpy as np
 import torch as th
 
-from src.models.utils.nn import mean_flat
-from .losses import normal_kl, discretized_gaussian_log_likelihood
-from .enums import *
+from src.models.utils.utils import mean_flat
 
+from .enums import *
+from .losses import discretized_gaussian_log_likelihood, normal_kl
 
 
 class GaussianDiffusion:
-    """
-    Utilities for training and sampling diffusion models.
+    """Utilities for training and sampling diffusion models.
 
     Ported directly from here, and then adapted over time to further experimentation.
     https://github.com/hojonathanho/diffusion/blob/1e0dceb3b3495bbe19116a5e1b3596cd0706c543/diffusion_tf/diffusion_utils_2.py#L42
 
-    :param betas: a 1-D numpy array of betas for each diffusion timestep,
-                  starting at T and going to 1.
+    :param betas: a 1-D numpy array of betas for each diffusion timestep, starting at T and going
+        to 1.
     :param model_mean_type: a ModelMeanType determining what the model outputs.
     :param model_var_type: a ModelVarType determining how variance is output.
     :param loss_type: a LossType determining the loss function to use.
-    :param rescale_timesteps: if True, pass floating point timesteps into the
-                              model so that they are always scaled like in the
-                              original paper (0 to 1000).
+    :param rescale_timesteps: if True, pass floating point timesteps into the model so that they
+        are always scaled like in the original paper (0 to 1000).
     """
 
     def __init__(
@@ -88,8 +86,7 @@ class GaussianDiffusion:
         )
 
     def q_mean_variance(self, x_start, t):
-        """
-        Get the distribution q(x_t | x_0).
+        """Get the distribution q(x_t | x_0).
 
         :param x_start: the [N x C x ...] tensor of noiseless inputs.
         :param t: the number of diffusion steps (minus 1). Here, 0 means one step.
@@ -105,8 +102,7 @@ class GaussianDiffusion:
         return mean, variance, log_variance
 
     def q_sample(self, x_start, t, noise=None):
-        """
-        Diffuse the data for a given number of diffusion steps.
+        """Diffuse the data for a given number of diffusion steps.
 
         In other words, sample from q(x_t | x_0).
 
@@ -151,9 +147,7 @@ class GaussianDiffusion:
     def p_mean_variance(
         self, model, x, t, clip_denoised=True, denoised_fn=None, model_kwargs=None
     ):
-        """
-        Apply the model to get p(x_{t-1} | x_t), as well as a prediction of
-        the initial x, x_0.
+        """Apply the model to get p(x_{t-1} | x_t), as well as a prediction of the initial x, x_0.
 
         :param model: the model, which takes a signal and a batch of timesteps
                       as input.
@@ -273,11 +267,9 @@ class GaussianDiffusion:
         return t
 
     def condition_mean(self, cond_fn, p_mean_var, x, t, model_kwargs=None):
-        """
-        Compute the mean for the previous step, given a function cond_fn that
-        computes the gradient of a conditional log probability with respect to
-        x. In particular, cond_fn computes grad(log(p(y|x))), and we want to
-        condition on y.
+        """Compute the mean for the previous step, given a function cond_fn that computes the
+        gradient of a conditional log probability with respect to x. In particular, cond_fn
+        computes grad(log(p(y|x))), and we want to condition on y.
 
         This uses the conditioning strategy from Sohl-Dickstein et al. (2015).
         """
@@ -288,14 +280,13 @@ class GaussianDiffusion:
         return new_mean
 
     def condition_score(self, cond_fn, p_mean_var, x, t, model_kwargs=None):
-        """
-        Compute what the p_mean_variance output would have been, should the
-        model's score function be conditioned by cond_fn.
+        """Compute what the p_mean_variance output would have been, should the model's score
+        function be conditioned by cond_fn.
 
         See condition_mean() for details on cond_fn.
 
-        Unlike condition_mean(), this instead uses the conditioning strategy
-        from Song et al (2020).
+        Unlike condition_mean(), this instead uses the conditioning strategy from Song et al
+        (2020).
         """
         alpha_bar = _extract_into_tensor(self.alphas_cumprod, t, x.shape)
 
@@ -311,7 +302,6 @@ class GaussianDiffusion:
         )
         return out
 
-
     def p_sample(
         self,
         model,
@@ -322,8 +312,7 @@ class GaussianDiffusion:
         cond_fn=None,
         model_kwargs=None,
     ):
-        """
-        Sample x_{t-1} from the model at the given timestep.
+        """Sample x_{t-1} from the model at the given timestep.
 
         :param model: the model to sample from.
         :param x: the current tensor at x_{t-1}.
@@ -358,7 +347,6 @@ class GaussianDiffusion:
         sample = out["mean"] + nonzero_mask * th.exp(0.5 * out["log_variance"]) * noise
         return {"sample": sample, "pred_xstart": out["pred_xstart"]}
 
-
     def ddim_sample(
         self,
         model,
@@ -370,8 +358,7 @@ class GaussianDiffusion:
         model_kwargs=None,
         eta=0.0,
     ):
-        """
-        Sample x_{t-1} from the model using DDIM.
+        """Sample x_{t-1} from the model using DDIM.
 
         Same usage as p_sample().
         """
@@ -401,7 +388,7 @@ class GaussianDiffusion:
         noise = th.randn_like(x)
         mean_pred = (
             out["pred_xstart"] * th.sqrt(alpha_bar_prev)
-            + th.sqrt(1 - alpha_bar_prev - sigma ** 2) * eps
+            + th.sqrt(1 - alpha_bar_prev - sigma**2) * eps
         )
         nonzero_mask = (
             (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))
@@ -419,9 +406,7 @@ class GaussianDiffusion:
         model_kwargs=None,
         eta=0.0,
     ):
-        """
-        Sample x_{t+1} from the model using DDIM reverse ODE.
-        """
+        """Sample x_{t+1} from the model using DDIM reverse ODE."""
         assert eta == 0.0, "Reverse ODE only for deterministic path"
         out = self.p_mean_variance(
             model,
@@ -447,13 +432,10 @@ class GaussianDiffusion:
 
         return {"sample": mean_pred, "pred_xstart": out["pred_xstart"]}
 
-
-
     def _vb_terms_bpd(
         self, model, x_start, x_t, t, clip_denoised=True, model_kwargs=None
     ):
-        """
-        Get a term for the variational lower-bound.
+        """Get a term for the variational lower-bound.
 
         The resulting units are bits (rather than nats, as one might expect).
         This allows for comparison to other papers.
@@ -485,11 +467,8 @@ class GaussianDiffusion:
         return {"output": output, "pred_xstart": out["pred_xstart"]}
 
 
-
-
 def _extract_into_tensor(arr, timesteps, broadcast_shape):
-    """
-    Extract values from a 1-D numpy array for a batch of indices.
+    """Extract values from a 1-D numpy array for a batch of indices.
 
     :param arr: the 1-D numpy array.
     :param timesteps: a tensor of indices into the array to extract.

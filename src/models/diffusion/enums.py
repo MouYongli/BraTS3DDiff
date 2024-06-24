@@ -2,9 +2,7 @@ import enum
 
 
 class ModelMeanType(enum.Enum):
-    """
-    Which type of output the model predicts.
-    """
+    """Which type of output the model predicts."""
 
     PREVIOUS_X = enum.auto()  # the model predicts x_{t-1}
     START_X = enum.auto()  # the model predicts x_0
@@ -12,11 +10,10 @@ class ModelMeanType(enum.Enum):
 
 
 class ModelVarType(enum.Enum):
-    """
-    What is used as the model's output variance.
+    """What is used as the model's output variance.
 
-    The LEARNED_RANGE option has been added to allow the model to predict
-    values between FIXED_SMALL and FIXED_LARGE, making its job easier.
+    The LEARNED_RANGE option has been added to allow the model to predict values between
+    FIXED_SMALL and FIXED_LARGE, making its job easier.
     """
 
     LEARNED = enum.auto()

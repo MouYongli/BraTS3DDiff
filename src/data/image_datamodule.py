@@ -1,18 +1,23 @@
-from typing import Any, Dict, Optional, Tuple
-
-import torch
-from lightning import LightningDataModule
-from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split
-from torchvision.transforms import transforms
 import os
 import tempfile
+from typing import Any, Dict, Optional, Tuple
 
-import torchvision
-from tqdm.auto import tqdm
-from .components.image_dataset import ImageDataset
 import blobfile as bf
+import torch
+import torchvision
+from lightning import LightningDataModule
 from mpi4py import MPI
-from src.utils import gd_logger as logger
+from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split
+from torchvision.transforms import transforms
+from tqdm.auto import tqdm
+
+# from src.utils import gd_logger as logger
+from src.utils import RankedLogger
+
+from .components.image_dataset import ImageDataset
+
+log = RankedLogger(__name__, rank_zero_only=True)
+
 
 def _list_image_files_recursively(data_dir):
     results = []
@@ -69,18 +74,18 @@ class ImageDataModule(LightningDataModule):
         data_dir: str,
         batch_size: int,
         image_size: int,
-        class_cond:bool,
-        n_classes:int,
-        random_crop:bool=False,
-        random_flip:bool=True,
-        deterministic:bool=False,
+        class_cond: bool,
+        n_classes: int,
+        random_crop: bool = False,
+        random_flip: bool = True,
+        deterministic: bool = False,
         num_workers: int = 0,
         pin_memory: bool = False,
-        
     ) -> None:
         """Initialize a `ImageDataModule`.
-        General DataModule for any image dataset.
-        To make a dataset speicific DataModule, inherit from this class.
+
+        General DataModule for any image dataset. To make a dataset speicific DataModule, inherit
+        from this class.
         """
         super().__init__()
 
@@ -101,7 +106,7 @@ class ImageDataModule(LightningDataModule):
         self.random_crop = random_crop
         self.random_flip = random_flip
 
-        self.dataset:Optional[Dataset] = None
+        self.dataset: Optional[Dataset] = None
 
         self.data_train: Optional[Dataset] = None
         self.data_val: Optional[Dataset] = None
@@ -116,15 +121,14 @@ class ImageDataModule(LightningDataModule):
         :return: The number of cifar classes (10).
         """
         return None
-    
+
     @property
-    def _classes(self) -> Tuple[str,...]:
+    def _classes(self) -> Tuple[str, ...]:
         """Get the class names.
 
         :return: The class names.
         """
         return None
-
 
     def prepare_data(self) -> None:
         """Download data if needed. Lightning ensures that `self.prepare_data()` is called only
@@ -132,12 +136,9 @@ class ImageDataModule(LightningDataModule):
         case of multi-node training, the execution of this hook depends upon
         `self.prepare_data_per_node()`.
 
-        Do not use it to assign state (self.x = y).
-        Define this in the subclass
+        Do not use it to assign state (self.x = y). Define this in the subclass
         """
         pass
-
-
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
@@ -149,15 +150,17 @@ class ImageDataModule(LightningDataModule):
 
         :param stage: The stage to setup. Either `"fit"`, `"validate"`, `"test"`, or `"predict"`. Defaults to ``None``.
         """
-        logger.log("creating data loader...")
-        
+        log.info("creating data loader...")
+
         # Divide batch size by the number of devices.
         if self.trainer is not None:
             if self.hparams.batch_size % self.trainer.world_size != 0:
                 raise RuntimeError(
                     f"Batch size ({self.hparams.batch_size}) is not divisible by the number of devices ({self.trainer.world_size})."
                 )
-            self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
+            self.batch_size_per_device = (
+                self.hparams.batch_size // self.trainer.world_size
+            )
 
         if not self.dataset:
             all_files = _list_image_files_recursively(self.hparams.data_dir)
@@ -173,12 +176,9 @@ class ImageDataModule(LightningDataModule):
                 self.image_size,
                 all_files,
                 classes=classes,
-                shard=MPI.COMM_WORLD.Get_rank(),
-                num_shards=MPI.COMM_WORLD.Get_size(),
                 random_crop=self.random_crop,
-                random_flip=self.random_flip
+                random_flip=self.random_flip,
             )
-
 
     def train_dataloader(self) -> DataLoader[Any]:
         """Create and return the train dataloader.
@@ -201,7 +201,6 @@ class ImageDataModule(LightningDataModule):
                 pin_memory=self.hparams.pin_memory,
                 shuffle=True,
             )
-
 
     def teardown(self, stage: Optional[str] = None) -> None:
         """Lightning hook for cleaning up after `trainer.fit()`, `trainer.validate()`,

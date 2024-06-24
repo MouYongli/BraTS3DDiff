@@ -5,7 +5,7 @@ defaults:
   - data: noise_sample_cifar
   - model: diffusion_cifar
   - logger: null
-  - trainer: default
+  - trainer: ddp
   - paths: default
   - extras: default
   - hydra: default
@@ -30,6 +30,5 @@ extra_cfg:
   eta: null
 
   log_interval: 100
-
 
   output_dir: ${hydra:runtime.output_dir}

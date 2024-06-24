@@ -1,15 +1,13 @@
-import numpy as np
 import math
 
+import numpy as np
 
 
 def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
-    """
-    Get a pre-defined beta schedule for the given name.
+    """Get a pre-defined beta schedule for the given name.
 
-    The beta schedule library consists of beta schedules which remain similar
-    in the limit of num_diffusion_timesteps.
-    Beta schedules may be added, but should not be removed or changed once
+    The beta schedule library consists of beta schedules which remain similar in the limit of
+    num_diffusion_timesteps. Beta schedules may be added, but should not be removed or changed once
     they are committed to maintain backwards compatibility.
     """
     if schedule_name == "linear":
@@ -31,16 +29,13 @@ def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
 
 
 def betas_for_alpha_bar(num_diffusion_timesteps, alpha_bar, max_beta=0.999):
-    """
-    Create a beta schedule that discretizes the given alpha_t_bar function,
-    which defines the cumulative product of (1-beta) over time from t = [0,1].
+    """Create a beta schedule that discretizes the given alpha_t_bar function, which defines the
+    cumulative product of (1-beta) over time from t = [0,1].
 
     :param num_diffusion_timesteps: the number of betas to produce.
-    :param alpha_bar: a lambda that takes an argument t from 0 to 1 and
-                      produces the cumulative product of (1-beta) up to that
-                      part of the diffusion process.
-    :param max_beta: the maximum beta to use; use values lower than 1 to
-                     prevent singularities.
+    :param alpha_bar: a lambda that takes an argument t from 0 to 1 and produces the cumulative
+        product of (1-beta) up to that part of the diffusion process.
+    :param max_beta: the maximum beta to use; use values lower than 1 to prevent singularities.
     """
     betas = []
     for i in range(num_diffusion_timesteps):

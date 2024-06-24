@@ -1,22 +1,19 @@
+import os
+import tempfile
 from typing import Any, Dict, Optional, Tuple
 
 import torch
+import torchvision
 from lightning import LightningDataModule
 from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split
 from torchvision.transforms import transforms
-import os
-import tempfile
-
-import torchvision
 from tqdm.auto import tqdm
 
 from .image_datamodule import ImageDataModule
 
 
-
 class CIFAR10DataModule(ImageDataModule):
-    """`LightningDataModule` for the Cifar10 dataset.
-    32*32 RGB images of 10 classes.
+    """`LightningDataModule` for the Cifar10 dataset. 32*32 RGB images of 10 classes.
 
     A `LightningDataModule` implements 7 key methods:
 
@@ -58,14 +55,13 @@ class CIFAR10DataModule(ImageDataModule):
         data_dir: str = "/home/sanyal/DATA/cifar10",
         batch_size: int = 128,
         image_size: int = 32,
-        class_cond:bool=False,
-        n_classes:int=None,
-        random_crop:bool=False,
-        random_flip:bool=True,
-        deterministic:bool=False,
+        class_cond: bool = False,
+        n_classes: int = None,
+        random_crop: bool = False,
+        random_flip: bool = True,
+        deterministic: bool = False,
         num_workers: int = 0,
         pin_memory: bool = False,
-        
     ) -> None:
         """Initialize a `CIFAR10DataModule`.
 
@@ -75,14 +71,22 @@ class CIFAR10DataModule(ImageDataModule):
         :param num_workers: The number of workers. Defaults to `0`.
         :param pin_memory: Whether to pin memory. Defaults to `False`.
         """
-        super().__init__(data_dir,batch_size,image_size,
-                         class_cond,n_classes,random_crop,random_flip,
-                         deterministic,num_workers,pin_memory)
+        super().__init__(
+            data_dir,
+            batch_size,
+            image_size,
+            class_cond,
+            n_classes,
+            random_crop,
+            random_flip,
+            deterministic,
+            num_workers,
+            pin_memory,
+        )
 
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters(logger=False)
-
 
     @property
     def num_classes(self) -> int:
@@ -91,9 +95,9 @@ class CIFAR10DataModule(ImageDataModule):
         :return: The number of cifar classes (10).
         """
         return 10
-    
+
     @property
-    def _classes(self) -> Tuple[str,...]:
+    def _classes(self) -> Tuple[str, ...]:
         """Get the class names.
 
         :return: The class names.
@@ -111,7 +115,6 @@ class CIFAR10DataModule(ImageDataModule):
             "truck",
         )
 
-
     def prepare_data(self) -> None:
         """Download data if needed. Lightning ensures that `self.prepare_data()` is called only
         within a single process on CPU, so you can safely add your downloading logic within. In
@@ -121,7 +124,7 @@ class CIFAR10DataModule(ImageDataModule):
         Do not use it to assign state (self.x = y).
         """
         for split in ["train", "test"]:
-            out_dir = os.path.join(self.hparams.data_dir,f"cifar_{split}")
+            out_dir = os.path.join(self.hparams.data_dir, f"cifar_{split}")
             if os.path.exists(out_dir):
                 print(f"skipping split {split} since {out_dir} already exists.")
                 continue
@@ -139,8 +142,6 @@ class CIFAR10DataModule(ImageDataModule):
                 filename = os.path.join(out_dir, f"{self._classes[label]}_{i:05d}.png")
                 image.save(filename)
 
-
-
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
 
@@ -153,14 +154,12 @@ class CIFAR10DataModule(ImageDataModule):
         """
         super().setup(stage)
 
-
     def train_dataloader(self) -> DataLoader[Any]:
         """Create and return the train dataloader.
 
         :return: The train dataloader.
         """
         return super().train_dataloader()
-
 
     def teardown(self, stage: Optional[str] = None) -> None:
         """Lightning hook for cleaning up after `trainer.fit()`, `trainer.validate()`,

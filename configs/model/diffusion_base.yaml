@@ -27,7 +27,6 @@ net_cfg:
   use_fp16: False
   use_new_attention_order: False
 
-
 diffusion_cfg:
   steps: 1000
   learn_sigma: False
@@ -38,8 +37,6 @@ diffusion_cfg:
   rescale_timesteps: False
   rescale_learned_sigmas: False
   timestep_respacing: ""
-
-
 
 # compile model for faster training with pytorch 2.0
 compile: false

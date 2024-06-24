@@ -5,8 +5,6 @@ import rootutils
 from lightning import LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
-from src.utils import gd_logger
-from src.utils import dist_util
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
@@ -48,17 +46,12 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     :return: Tuple[dict, dict] with metrics and dict with all instantiated objects.
     """
     assert cfg.ckpt_path
-    #cfg.extra_cfg['checkpoint'] = cfg.ckpt_path
-
-    dist_util.setup_dist()
-    if cfg.extra_cfg.get("output_dir"):
-        gd_logger.configure(dir=cfg.extra_cfg.output_dir)
 
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
 
     log.info(f"Instantiating model <{cfg.model._target_}>")
-    model: LightningModule = hydra.utils.instantiate(cfg.model,kwargs=cfg.extra_cfg)
+    model: LightningModule = hydra.utils.instantiate(cfg.model, kwargs=cfg.extra_cfg)
 
     log.info("Instantiating loggers...")
     logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
@@ -79,7 +72,7 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         log_hyperparameters(object_dict)
 
     log.info("Starting testing!")
-    trainer.predict(model=model, datamodule=datamodule,ckpt_path=cfg.get("ckpt_path"))
+    trainer.predict(model=model, datamodule=datamodule, ckpt_path=cfg.get("ckpt_path"))
 
     # for predictions use trainer.predict(...)
     # predictions = trainer.predict(model=model, dataloaders=dataloaders, ckpt_path=cfg.ckpt_path)

@@ -3,13 +3,13 @@ from typing import Any, Dict, Optional, Tuple
 import torch
 from lightning import LightningDataModule
 from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split
+
 from .components.noise_sample_dataset import NoiseSampleDataset
 
 
 class NoiseSampleDataModule(LightningDataModule):
-    """`LightningDataModule` for sampling noise and class conditions
-         during the image generation sampling process.
-
+    """`LightningDataModule` for sampling noise and class conditions during the image generation
+    sampling process.
 
     A `LightningDataModule` implements 7 key methods:
 
@@ -50,9 +50,9 @@ class NoiseSampleDataModule(LightningDataModule):
         self,
         batch_size: int = 16,
         image_size: int = 32,
-        class_cond:bool=False,
-        n_classes:int=None,
-        num_samples:int=10000,
+        class_cond: bool = False,
+        n_classes: int = None,
+        num_samples: int = 10000,
         num_workers: int = 8,
         pin_memory: bool = False,
     ) -> None:
@@ -101,7 +101,6 @@ class NoiseSampleDataModule(LightningDataModule):
         """
         pass
 
-
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
 
@@ -118,15 +117,16 @@ class NoiseSampleDataModule(LightningDataModule):
                 raise RuntimeError(
                     f"Batch size ({self.hparams.batch_size}) is not divisible by the number of devices ({self.trainer.world_size})."
                 )
-            self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
+            self.batch_size_per_device = (
+                self.hparams.batch_size // self.trainer.world_size
+            )
 
         self.data = NoiseSampleDataset(
-                        self.image_size,
-                        class_cond=self.class_cond,
-                        num_classes=self.num_classes,
-                        num_samples=self.num_samples
-                )
-
+            self.image_size,
+            class_cond=self.class_cond,
+            num_classes=self.num_classes,
+            num_samples=self.num_samples,
+        )
 
     def predict_dataloader(self) -> DataLoader[Any]:
         """Create and return the test dataloader.
@@ -140,8 +140,6 @@ class NoiseSampleDataModule(LightningDataModule):
             pin_memory=self.hparams.pin_memory,
             shuffle=False,
         )
-
-
 
     def teardown(self, stage: Optional[str] = None) -> None:
         """Lightning hook for cleaning up after `trainer.fit()`, `trainer.validate()`,

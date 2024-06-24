@@ -33,7 +33,7 @@ task_name: "train"
 # tags to help you identify your experiments
 # you can overwrite this in experiment configs
 # overwrite from command line with `python train.py tags="[first_tag, second_tag]"`
-tags: ["dev",'Importance-sampled VLB','CIFAR']
+tags: ["dev", "Importance-sampled VLB", "CIFAR"]
 
 # set False to skip model training
 train: True
@@ -59,6 +59,3 @@ extra_cfg:
   batch_size: ${data.batch_size}
 
   log_interval: 100
-
-  output_dir: ${hydra:runtime.output_dir}
-
