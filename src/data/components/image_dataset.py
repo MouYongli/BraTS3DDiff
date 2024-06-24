@@ -3,9 +3,8 @@ import random
 
 import blobfile as bf
 import numpy as np
-from mpi4py import MPI
 from PIL import Image
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import Dataset
 
 
 class ImageDataset(Dataset):

@@ -2,7 +2,7 @@ import random
 
 import numpy as np
 import torch as th
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import Dataset
 
 
 class NoiseSampleDataset(Dataset):

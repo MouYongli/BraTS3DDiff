@@ -55,7 +55,7 @@ def mean_flat(tensor):
 
 
 def aggregate_timestep_quantile_losses(qt_losses_dict):
-    if dist.is_available():
+    if dist.is_available() and dist.is_initialized():
         world_size = dist.get_world_size()
         qt_losses_dict_all = [None for _ in range(world_size)]
         dist.all_gather_object(qt_losses_dict_all, qt_losses_dict)

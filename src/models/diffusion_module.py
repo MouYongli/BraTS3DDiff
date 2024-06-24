@@ -1,17 +1,13 @@
 import copy
-import functools
 import os
-from operator import itemgetter
 from typing import Any, Dict, Tuple
 
 import blobfile as bf
-import lightning
 import numpy as np
 import torch as th
 import torch.distributed as dist
 from lightning import LightningModule
-from torchmetrics import MaxMetric, MeanMetric
-from torchmetrics.classification.accuracy import Accuracy
+from torchmetrics import MeanMetric
 
 from src.models.diffusion import gaussian_diffusion as gd
 from src.models.diffusion.enums import LossType, ModelMeanType, ModelVarType
@@ -345,7 +341,7 @@ class DenoisingDiffusionLitModule(LightningModule):
 
         :param batch: A batch of data (a tuple) containing the input tensor of images and target labels.
 
-        :return: A tuple containing (in order):
+        :return:
             - A tensor of losses.
         """
         data, cond = batch
@@ -479,6 +475,14 @@ class DenoisingDiffusionLitModule(LightningModule):
                 yield img
 
     def predict_step(self, batch: Tuple[th.Tensor, Any]):
+        """Perform a single sampling step on a batch of noise samples and target labels
+            Generates a batch of images corresponding to target labels, and
+            Gathers generated images from all the processes
+
+        :param batch: A batch of data (a tuple) containing the input tensor of noise and target
+            labels.
+        :return: Does not return
+        """
         # batch consists of noise, and class condition
         # converts noise to image of class condition
 
@@ -573,7 +577,6 @@ class DenoisingDiffusionLitModule(LightningModule):
                 copy.deepcopy(list(self.net.parameters()))
                 for _ in range(len(self.ema_rate))
             ]
-
 
     def configure_optimizers(self) -> Dict[str, Any]:
         """Choose what optimizers and learning-rate schedulers to use in your optimization.
