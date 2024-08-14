@@ -8,7 +8,7 @@ import torch as th
 import torch.distributed as dist
 from lightning import LightningModule
 from torchmetrics import MeanMetric
-
+import torch
 from src.models.diffusion import gaussian_diffusion as gd
 from src.models.diffusion.enums import LossType, ModelMeanType, ModelVarType
 from src.models.diffusion.noise_schedule import get_named_beta_schedule
@@ -28,6 +28,9 @@ from src.models.utils.utils import (
     state_dict_to_params,
     update_ema,
 )
+from src.loss.brats_loss import BraTSLoss
+from src.loss.denoising_loss import DenoisingLoss
+
 from src.utils import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=True)
@@ -211,7 +214,9 @@ class DenoisingDiffusionLitModule(LightningModule):
         self.net: UNetModel = create_model(**net_cfg)
         self.diffusion: SpacedDiffusion = create_gaussian_diffusion(**diffusion_cfg)
 
-        self.train_loss = MeanMetric()
+        #self.train_loss = MeanMetric()
+        self.criterion = BraTSLoss()
+        self.denoising_criterion = DenoisingLoss(diffusion=self.diffusion)
         self.automatic_optimization = False
 
     def on_load_checkpoint(self, checkpoint):
@@ -225,89 +230,43 @@ class DenoisingDiffusionLitModule(LightningModule):
             params_to_state_dict(self.net, params) for params in self.ema_params
         ]
 
-    def forward(self, x_start, t, model_kwargs=None, noise=None):
-        """Compute training losses for a single timestep.
 
-        :param x_start: the [N x C x ...] tensor of inputs.
-        :param t: a batch of timestep indices.
-        :param model_kwargs: if not None, a dict of extra keyword arguments to
-            pass to the model. This can be used for conditioning.
-        :param noise: if specified, the specific Gaussian noise to try to remove.
-        :return: a dict with the key "loss" containing a tensor of shape [N].
-                 Some mean or variance settings may also have other keys.
+    def forward(self, pred_type=None, image=None, embeddings=None, x_start=None, x_t=None, t=None, model_out=None):
+        """Executes different functions of gaussian diffusion
+            embeddings refer to image embeddings
         """
-        if model_kwargs is None:
-            model_kwargs = {}
-        if noise is None:
-            noise = th.randn_like(x_start)
-        x_t = self.diffusion.q_sample(x_start, t, noise=noise)
+        if pred_type == "q_sample":
+            noise = torch.randn_like(x_start)
+            x_t = self.diffusion.q_sample(x_start, t, noise=noise)
+            return x_t, noise
 
-        loss_terms = {}
+        elif pred_type == "model_out":
+            model_out = self.net(x_t, t=self.diffusion._scale_timesteps(t), image=image, embeddings=embeddings)
+            return model_out
 
-        if (
-            self.diffusion.loss_type == LossType.KL
-            or self.diffusion.loss_type == LossType.RESCALED_KL
-        ):
-            loss_terms["loss"] = self.diffusion._vb_terms_bpd(
-                model=self.net,
-                x_start=x_start,
-                x_t=x_t,
-                t=t,
-                clip_denoised=False,
-                model_kwargs=model_kwargs,
-            )["output"]
+        elif pred_type == "pred_xstart":
+            #predict x_start from x_t
+            if not model_out:
+                model_out = self.net(x_t, t=self.diffusion._scale_timesteps(t), image=image, embeddings=embeddings)
 
-            if self.diffusion.loss_type == LossType.RESCALED_KL:
-                loss_terms["loss"] *= self.diffusion.num_timesteps
-
-        elif (
-            self.diffusion.loss_type == LossType.MSE
-            or self.diffusion.loss_type == LossType.RESCALED_MSE
-        ):
-            model_output = self.net(
-                x_t, self.diffusion._scale_timesteps(t), **model_kwargs
-            )
-
-            if self.diffusion.model_var_type in [
-                ModelVarType.LEARNED,
-                ModelVarType.LEARNED_RANGE,
-            ]:
-                B, C = x_t.shape[:2]
-                assert model_output.shape == (B, C * 2, *x_t.shape[2:])
-                model_output, model_var_values = th.split(model_output, C, dim=1)
-                # Learn the variance using the variational bound, but don't let
-                # it affect our mean prediction.
-                frozen_out = th.cat([model_output.detach(), model_var_values], dim=1)
-                loss_terms["vb"] = self.diffusion._vb_terms_bpd(
-                    model=lambda *args, r=frozen_out: r,
-                    x_start=x_start,
-                    x_t=x_t,
-                    t=t,
-                    clip_denoised=False,
-                )["output"]
-
-                if self.diffusion.loss_type == LossType.RESCALED_MSE:
-                    # Divide by 1000 for equivalence with initial implementation.
-                    # Without a factor of 1/1000, the VB term hurts the MSE term.
-                    loss_terms["vb"] *= self.diffusion.num_timesteps / 1000.0
-
-            target = {
-                ModelMeanType.PREVIOUS_X: self.diffusion.q_posterior_mean_variance(
-                    x_start=x_start, x_t=x_t, t=t
-                )[0],
-                ModelMeanType.START_X: x_start,
-                ModelMeanType.EPSILON: noise,
-            }[self.diffusion.model_mean_type]
-            assert model_output.shape == target.shape == x_start.shape
-            loss_terms["mse"] = mean_flat((target - model_output) ** 2)
-            if "vb" in loss_terms:
-                loss_terms["loss"] = loss_terms["mse"] + loss_terms["vb"]
+            if self.diffusion.model_mean_type == ModelMeanType.PREVIOUS_X:
+                pred_xstart = self.diffusion._predict_xstart_from_xprev(x_t=x_t, t=t, xprev=model_out)
+            elif self.diffusion.model_mean_type == ModelMeanType.START_X:
+                pred_xstart = model_out
+            elif self.diffusion.model_mean_type == ModelMeanType.EPSILON:
+                pred_xstart = self.diffusion._predict_xstart_from_eps(x_t=x_t, t=t, eps=model_out)
             else:
-                loss_terms["loss"] = loss_terms["mse"]
-        else:
-            raise NotImplementedError(self.diffusion.loss_type)
+                raise NotImplementedError(self.diffusion.model_mean_type)
+            return pred_xstart
 
-        return loss_terms
+        elif pred_type == "ddim_sample":
+            #embeddings = self.embed_model(image)
+            sample_out = self.sample_diffusion.ddim_sample_loop(self.model, (1, number_targets, roi_size[0], roi_size[0], roi_size[0]), model_kwargs={"image": image, "embeddings": embeddings})
+            sample_out = sample_out["pred_xstart"]
+            return sample_out
+
+
+
 
     def on_train_start(self) -> None:
         """Lightning hook that is called when training begins."""
@@ -344,26 +303,50 @@ class DenoisingDiffusionLitModule(LightningModule):
         :return:
             - A tensor of losses.
         """
-        data, cond = batch
+        image, mask, foreground = batch["image"], batch["mask"], batch["foreground"]
 
         qt_losses_dict = {}
-        for i in range(0, data.shape[0], self.microbatch):
-            micro = data[i : i + self.microbatch]
-            micro_cond = {k: v[i : i + self.microbatch] for k, v in cond.items()}
-            # last_batch = (i + self.microbatch) >= data.shape[0]
+        for i in range(0, image.shape[0], self.microbatch):
+            image_ = image[i : i + self.microbatch]
+            mask_ = mask[i : i + self.microbatch]
+            foreground_ = foreground[i : i + self.microbatch]
 
-            t, weights = self.schedule_sampler.sample(micro)
-            losses = self.forward(micro, t, model_kwargs=micro_cond)
+            x_start = (mask_) * 2 - 1
+
+            t, weights = self.schedule_sampler.sample(x_start)
+            x_t, noise = self.forward(x=x_start, pred_type="q_sample")
+            model_out = self.forward(x_t=x_t, t=t, image=image_, pred_type="model_out")
+            losses = self.denoising_criterion(model_out=model_out, x_start=x_start, x_t=x_t, t=t, noise=noise, loss_type="general_denoising_loss")
+
+            # compute quantile losses for timesteps
             qt_losses_dict = get_timestep_quantile_losses(
                 t, weights, losses, self.diffusion.num_timesteps, qt_losses_dict
             )
-
+            #update loss history (for importance sampling objective)
             if isinstance(self.schedule_sampler, LossAwareSampler):
-                self.schedule_sampler.update_with_local_losses(
-                    t, losses["loss"].detach()
-                )
+                self.schedule_sampler.update_with_local_losses(t, losses['loss'].detach())
 
-            loss = (losses["loss"] * weights).mean()
+            #denoising loss
+            deno_loss = (losses['loss'] * weights).mean()
+
+            ##Compute losses b/w pred_xstart and mask_
+            pred_xstart = self.forward(x_t=x_t,step=t,model_out=model_out, pred_type="pred_xstart") * foreground_
+            #pred_xstart = torch.sigmoid(pred_xstart)
+            #pred_xstart_mse = self.mse(pred_xstart, mask_)
+            #Q1: is computing mse on pred_x_start and x_start necessary for all the model mean configs?
+            ##eg., if the model predicts the noise, the simple_mse_loss computes the mse b/w true and predicted noise
+            ###but, is computing mse on x_start and interpolated x_start (using x_t and pred noise: q(x_t|x_start)) also necessary for all the model mean configs?
+            ##########################################################
+            #Q2: Should the foreground mask and torch.sigmoid() be first applied to pred_x_start 
+            ## before applying the mse b/w pred_x_start and x_start (mask_),
+
+            seg_losses = self.criterion(pred_xstart,mask_)
+            loss_dice = seg_losses['dice']
+            loss_bce = seg_losses['bce']
+            loss_mse = seg_losses['mse']
+
+            loss = deno_loss + loss_dice + loss_bce + loss_mse
+
             self.manual_backward(loss)
 
         qt_losses_dict = aggregate_timestep_quantile_losses(qt_losses_dict)
@@ -389,7 +372,7 @@ class DenoisingDiffusionLitModule(LightningModule):
             update_ema(params, list(self.net.parameters()), rate=rate)
 
         # update and log metrics
-        self.train_loss(loss)
+        #self.train_loss(loss)
         self.log(
             "train/loss", self.train_loss, on_step=True, on_epoch=False, prog_bar=True
         )

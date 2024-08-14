@@ -1,0 +1,69 @@
+_target_: src.models.diffusion_module_simpl_no_microbatch.DenoisingDiffusionSimplNMbLitModule
+
+optimizer:
+  _target_: torch.optim.AdamW
+  _partial_: true
+  lr: 1e-4
+  weight_decay: 0.0
+
+scheduler:
+  _target_: src.scheduler.lr_scheduler.LinearWarmupCosineAnnealingLR
+  _partial_: true
+  warmup_epochs: 30
+  max_epochs: ${trainer.max_epochs}
+
+net:
+  _target_: src.models.networks.unet.basic_unet_denoise.BasicUNetDenoise
+  spatial_dims: 3
+  in_channels: ${eval:'${data.num_targets} + ${data.num_modalities}'}
+  out_channels: ${data.num_targets}
+  features: [64, 64, 128, 256, 512, 64]
+  act: LeakyReLU
+  norm: instance
+  dropout: 0.0
+  upsample: deconv
+
+
+embed_net:
+  _target_: src.models.networks.unet.basic_unet.BasicUNetEncoder
+  spatial_dims: 3
+  in_channels: ${data.num_modalities}
+  out_channels: ${data.num_targets}
+  features: [64, 64, 128, 256, 512, 64]
+  act: LeakyReLU
+  norm: instance
+  bias: True
+  dropout: 0.0
+  upsample: deconv
+
+
+sampler:
+  _target_: src.models.diffusion.timestep_sampler.UniformSampler
+  diffusion_steps: ${model.diffusion.steps}
+
+
+diffusion:
+  _target_: src.models.diffusion.build_diffusion.BuildDiffusion
+  steps: 1000
+  sample_steps: 50
+  noise_schedule: linear
+  model_mean_type: START_X
+  model_var_type: FIXED_LARGE
+  loss_type: MSE
+
+
+extra_kwargs:
+  microbatch: -1
+  ema_rate: "0.9999"
+  number_targets: ${data.num_targets}
+  roi_size: ${data.roi_size}
+
+inferer:
+  _target_: monai.inferers.SlidingWindowInferer
+  roi_size: ${data.roi_size}
+  sw_batch_size: 1
+  overlap: 0.25
+
+
+# compile model for faster training with pytorch 2.0
+compile: false

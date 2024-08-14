@@ -50,9 +50,9 @@ class ScheduleSampler(ABC):
 
 
 class UniformSampler(ScheduleSampler):
-    def __init__(self, diffusion):
-        self.diffusion = diffusion
-        self._weights = np.ones([diffusion.num_timesteps])
+    def __init__(self, diffusion_steps):
+        self.diffusion_steps = diffusion_steps
+        self._weights = np.ones([diffusion_steps])
 
     def weights(self):
         return self._weights
@@ -121,18 +121,18 @@ class LossAwareSampler(ScheduleSampler):
 
 
 class LossSecondMomentResampler(LossAwareSampler):
-    def __init__(self, diffusion, history_per_term=10, uniform_prob=0.001):
-        self.diffusion = diffusion
+    def __init__(self, diffusion_steps, history_per_term=10, uniform_prob=0.001):
+        self.diffusion_steps = diffusion_steps
         self.history_per_term = history_per_term
         self.uniform_prob = uniform_prob
         self._loss_history = np.zeros(
-            [diffusion.num_timesteps, history_per_term], dtype=np.float64
+            [diffusion_steps, history_per_term], dtype=np.float64
         )
-        self._loss_counts = np.zeros([diffusion.num_timesteps], dtype=np.int64)
+        self._loss_counts = np.zeros([diffusion_steps], dtype=np.int64)
 
     def weights(self):
         if not self._warmed_up():
-            return np.ones([self.diffusion.num_timesteps], dtype=np.float64)
+            return np.ones([self.diffusion_steps], dtype=np.float64)
         weights = np.sqrt(np.mean(self._loss_history**2, axis=-1))
         weights /= np.sum(weights)
         weights *= 1 - self.uniform_prob

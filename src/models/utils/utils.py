@@ -2,6 +2,7 @@ from operator import itemgetter
 
 import torch.distributed as dist
 
+from monai.metrics import DiceMetric, compute_hausdorff_distance
 
 def zero_grad(params):
     for param in params:
@@ -119,3 +120,24 @@ def get_timestep_quantile_losses(ts, weights, losses, num_timesteps, qt_losses_d
                 ) / qt_losses_dict[key]["count"]
 
     return qt_losses_dict
+
+
+def compute_subregions_pred_metrics(y_pred,y_true,C,subregions_names):
+    #expects binarized y_pred 
+    #C = #subregions
+    dice_metric = DiceMetric(include_background=False, reduction="mean_batch", get_not_nans=True, ignore_empty=False)
+    scores = {}
+    dice_score = 0
+    hd95_score = 0
+    for c in range(C):
+        subregion_dice_score = dice_metric(y_pred[:, c].unsqueeze(1), y_true[:, c].unsqueeze(1)).mean()
+        #subregion_hd95 = compute_hausdorff_distance(y_pred[:, c].unsqueeze(1), y_true[:, c].unsqueeze(1),percentile=95)
+        dice_score += subregion_dice_score
+        #hd95_score += subregion_hd95
+        scores[f"dice_{subregions_names[c]}"] = subregion_dice_score
+        #scores[f"hd95_{subregions_names[c]}"] = hd95_score
+    dice_score /= C
+    #hd95_score /= C
+    scores[f"dice"] = dice_score
+    #scores[f"hd95_overall"] = hd95_score
+    return scores

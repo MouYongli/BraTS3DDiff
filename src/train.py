@@ -7,6 +7,8 @@ import torch
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
+from omegaconf import OmegaConf
+OmegaConf.register_new_resolver("eval", eval)
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
@@ -28,8 +30,6 @@ rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 from src.utils import (
     RankedLogger,
-    extras,
-    get_metric_value,
     instantiate_callbacks,
     instantiate_loggers,
     log_hyperparameters,
@@ -58,7 +58,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
 
     log.info(f"Instantiating model <{cfg.model._target_}>")
-    model: LightningModule = hydra.utils.instantiate(cfg.model, kwargs=cfg.extra_cfg)
+    model: LightningModule = hydra.utils.instantiate(cfg.model)
 
     log.info("Instantiating callbacks...")
     callbacks: List[Callback] = instantiate_callbacks(cfg.get("callbacks"))
@@ -114,20 +114,18 @@ def main(cfg: DictConfig) -> Optional[float]:
     :param cfg: DictConfig configuration composed by Hydra.
     :return: Optional[float] with optimized metric value.
     """
-    # apply extra utilities
-    # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)
-    extras(cfg)
-
     # train the model
-    metric_dict, _ = train(cfg)
+    OmegaConf.resolve(cfg=cfg)
+    try:
+        train(cfg)
+    except:
+        msg = "corrupted configuration yaml file, check the configs"
+        log.warning(msg)
+        raise ValueError(msg)
+    finally:
+        log.info("Existing the main script ...")
+    return 0
 
-    # safely retrieve metric value for hydra-based hyperparameter optimization
-    metric_value = get_metric_value(
-        metric_dict=metric_dict, metric_name=cfg.get("optimized_metric")
-    )
-
-    # return optimized metric
-    return metric_value
 
 
 if __name__ == "__main__":

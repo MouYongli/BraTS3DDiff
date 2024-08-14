@@ -4,15 +4,24 @@ defaults:
   - rich_progress_bar
   - _self_
 
-model_checkpoint:
-  dirpath: ${paths.output_dir}/checkpoints
-  filename: "model_{global_step}"
-  monitor: "global_step"
-  mode: "max"
-  every_n_train_steps: 10000
-  verbose: True
-  every_n_epochs: 0
-  save_top_k: 2
 
+
+
+rich_progress_bar:
+  _target_: lightning.pytorch.callbacks.RichProgressBar
 model_summary:
   max_depth: -1
+learningrate_monitor:
+  _target_: lightning.pytorch.callbacks.LearningRateMonitor
+  logging_interval: step # the interval at which to log the learning rate
+  log_momentum: False # whether to log the momentum
+model_checkpoint:
+  _target_: lightning.pytorch.callbacks.ModelCheckpoint
+  monitor: val/dice
+  mode: "max"
+  save_top_k: 3
+  ## This must be mutually exclusive with train_time_interval and every_n_epochs.
+  # every_n_train_steps: 200
+  ## check every n epochs. This must be mutually exclusive with every_n_train_steps and train_time_interval.
+  every_n_epochs: ${trainer.check_val_every_n_epoch}
+  save_on_train_epoch_end: True
