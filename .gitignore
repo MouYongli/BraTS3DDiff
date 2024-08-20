@@ -313,3 +313,9 @@ configs/local/default.yaml
 
 # Aim logging
 .aim
+
+*.txt
+
+#synapse access and config
+configs/synapse/*
+./synapse_auth_keys/*

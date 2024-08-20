@@ -30,7 +30,7 @@ defaults:
 # task name, determines output directory path
 task_name: "train"
 
-task_tag: "BraTS23-DiffUNet-96"
+task_tag: "BraTS23-DiffUNet-roi_96-meantype_xstart-with_deno_loss-no_mse_loss"
 
 # tags to help you identify your experiments
 # you can overwrite this in experiment configs
@@ -45,7 +45,6 @@ train: True
 test: False
 
 # simply provide checkpoint path to resume training
-#ckpt_path: "/home/sanyal/DATA/models/improved-diff-weights/cifar10_uncond_50M_500K.pt"
 ckpt_path: null
 
 # seed for random number generators in pytorch, numpy and python.random

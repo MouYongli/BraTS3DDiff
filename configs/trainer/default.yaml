@@ -12,7 +12,7 @@ devices: 1
 # precision: 16
 
 # perform a validation loop every N training iterations
-check_val_every_n_epoch: 20
+check_val_every_n_epoch: 30
 
 num_sanity_val_steps: 0
 

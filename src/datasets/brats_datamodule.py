@@ -133,7 +133,7 @@ class BraTSDataset(Dataset):
             data = self.transforms(data)
             return data
         else:
-            data,file_id = self.load_nifty(self.image_path[index])
+            data,file_id = self.read_data(self.image_path[index])
             image = data["image"]
             foreground = reduce(image, "c w h d -> () w h d", "sum")
             foreground = np.where(foreground > 0, 1, 0).astype(np.float32)
@@ -248,7 +248,7 @@ class BraTSDataModule(pl.LightningDataModule):
         try:
             val_paths = self._load_image_paths("val")
         except:
-            print("Validation data not found, Creating validation set")
+            log.warning("Validation data not found, Creating validation set")
             val_paths = self._create_val_subset()
 
         train_paths = self._load_image_paths("train")
@@ -316,7 +316,8 @@ class BraTSDataModule(pl.LightningDataModule):
         return DataLoader(
             dataset=self.data_val,
             batch_size= self.hparams.batch_size,
-            shuffle=False
+            shuffle=False,
+            num_workers=self.num_workers
         )
 
     def predict_dataloader(self) -> DataLoader:
@@ -325,14 +326,16 @@ class BraTSDataModule(pl.LightningDataModule):
                 dataset=self.data_test,
                 batch_size= self.hparams.batch_size,
                 shuffle=False,
-                collate_fn=custom_collate
+                collate_fn=custom_collate,
+                num_workers=self.num_workers
             )
         elif self.hparams.predict_set == 'val':
             return DataLoader(
                 dataset=self.data_val,
                 batch_size= self.hparams.batch_size,
                 shuffle=False,
-                collate_fn=custom_collate
+                collate_fn=custom_collate,
+                num_workers=self.num_workers
             )
         else:
             raise ValueError("predict_set must be in 'val', 'test'")

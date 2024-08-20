@@ -2,7 +2,8 @@ from operator import itemgetter
 
 import torch.distributed as dist
 
-from monai.metrics import DiceMetric, compute_hausdorff_distance
+from monai.metrics import DiceMetric
+from .metrics import hausdorff_distance_95, recall
 
 def zero_grad(params):
     for param in params:
@@ -126,18 +127,20 @@ def compute_subregions_pred_metrics(y_pred,y_true,C,subregions_names):
     #expects binarized y_pred 
     #C = #subregions
     dice_metric = DiceMetric(include_background=False, reduction="mean_batch", get_not_nans=True, ignore_empty=False)
-    scores = {}
-    dice_score = 0
-    hd95_score = 0
+    #scores = {'dice':0.0,'hd95':0.0,'recall':0.0}
+    scores = {'dice':0.0}
+
     for c in range(C):
-        subregion_dice_score = dice_metric(y_pred[:, c].unsqueeze(1), y_true[:, c].unsqueeze(1)).mean()
-        #subregion_hd95 = compute_hausdorff_distance(y_pred[:, c].unsqueeze(1), y_true[:, c].unsqueeze(1),percentile=95)
-        dice_score += subregion_dice_score
-        #hd95_score += subregion_hd95
-        scores[f"dice_{subregions_names[c]}"] = subregion_dice_score
-        #scores[f"hd95_{subregions_names[c]}"] = hd95_score
-    dice_score /= C
-    #hd95_score /= C
-    scores[f"dice"] = dice_score
-    #scores[f"hd95_overall"] = hd95_score
+        scores[f"dice_{subregions_names[c]}"]= dice_metric(y_pred[:, c].unsqueeze(1), y_true[:, c].unsqueeze(1)).mean()
+        #scores[f"hd95_{subregions_names[c]}"] = hausdorff_distance_95(y_pred[:, c].unsqueeze(1), y_true[:, c].unsqueeze(1))
+        #scores[f"recall_{subregions_names[c]}"] = recall(y_pred[:, c].unsqueeze(1), y_true[:, c].unsqueeze(1))
+
+        scores[f"dice"] += scores[f"dice_{subregions_names[c]}"]
+        #scores[f"hd95"] += scores[f"hd95_{subregions_names[c]}"]
+        #scores[f"recall"] += scores[f"recall_{subregions_names[c]}"]
+
+    scores[f"dice"] /= C
+    #scores[f"hd95"] /= C
+    #scores[f"recall"] /= C
+
     return scores

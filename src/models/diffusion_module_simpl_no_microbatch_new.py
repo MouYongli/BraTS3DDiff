@@ -209,15 +209,12 @@ class DenoisingDiffusionSimplNMbLitModule(LightningModule):
         loss_bce = seg_losses['bce_loss']
         loss_mse = seg_losses['mse_loss']
 
-        if self.diffusion.model_mean_type == ModelMeanType.START_X:
-            sum_loss = loss_dice + loss_bce + loss_mse
-            if self.hparams.extra_kwargs.add_deno_loss_mean_type_xstart:
-                sum_loss += deno_loss
+        sum_loss = loss_dice + loss_bce
 
-        elif self.diffusion.model_mean_type == ModelMeanType.EPSILON:
-            sum_loss = loss_dice + loss_bce + deno_loss
-            if self.hparams.extra_kwargs.add_xstart_mse_loss_mean_type_epsilon:
-                sum_loss += loss_mse
+        if self.hparams.extra_kwargs.add_deno_loss:
+            sum_loss += deno_loss
+        if self.hparams.extra_kwargs.add_mse_loss:
+            sum_loss += loss_mse
 
         seg_losses.update({'deno_loss':deno_loss,'loss':sum_loss})
         return seg_losses
@@ -254,8 +251,7 @@ class DenoisingDiffusionSimplNMbLitModule(LightningModule):
     ) -> None:
         pass
 
-
-    def validation_step(self, batch):
+    def val_test_step(self,batch):
         #image: Nx4xWxHxD (4 Image Channels)
         #mask: NxCxWxHxD  (C= Tumor subregions Channels)
         image, mask, foreground = batch["image"], batch["mask"], batch["foreground"]
@@ -275,9 +271,26 @@ class DenoisingDiffusionSimplNMbLitModule(LightningModule):
         #compute scores on binary logits for every subregion
         logits = logits.sigmoid().gt(0.5)
         pred_scores = compute_subregions_pred_metrics(logits,mask,C,subregions_names)
+        return logits,pred_scores
         #pred_scores = {f"val/{k}":v for k,v in pred_scores.items()}
+
+
+    def validation_step(self, batch):
+        _,pred_scores = self.val_test_step(batch)
         self._log_scores(pred_scores,prefix='val',on_epoch=True,prog_bar=True)
 
+
+    def test_step(self, batch: Any, batch_idx: int):
+        _,pred_scores = self.val_test_step(batch)
+        self._log_scores(pred_scores,prefix='test',on_epoch=True,prog_bar=True)
+
+
+    def predict_step(self, batch):
+        datas, file_ids = batch
+        images, foregrounds = datas["image"], datas["foreground"]
+        logits = self.inferer(inputs=images,network=self.forward) * foregrounds
+        logits = logits.sigmoid().gt(0.5)
+        return logits,file_ids
 
 
     def _log_scores(self,scores:dict,prefix='train',on_epoch=False,on_step=False,prog_bar=False):

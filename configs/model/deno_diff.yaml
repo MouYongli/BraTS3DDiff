@@ -1,10 +1,10 @@
-_target_: src.models.diffusion_module_simpl_no_microbatch.DenoisingDiffusionSimplNMbLitModule
+_target_: src.models.diffusion_module_simpl_no_microbatch_new.DenoisingDiffusionSimplNMbLitModule
 
 optimizer:
   _target_: torch.optim.AdamW
   _partial_: true
   lr: 1e-4
-  weight_decay: 0.0
+  weight_decay: 1e-3
 
 scheduler:
   _target_: src.scheduler.lr_scheduler.LinearWarmupCosineAnnealingLR
@@ -57,6 +57,8 @@ extra_kwargs:
   ema_rate: "0.9999"
   number_targets: ${data.num_targets}
   roi_size: ${data.roi_size}
+  add_deno_loss: True
+  add_mse_loss: False
 
 inferer:
   _target_: monai.inferers.SlidingWindowInferer

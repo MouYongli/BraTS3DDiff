@@ -1,20 +1,28 @@
-defaults:
-  - model_checkpoint
-  - model_summary
-  - rich_progress_bar
-  - _self_
+save_predicted_masks:
+  _target_: src.callbacks.predicted_masks_save_callback.PredictedMasksSaveCallBack
+  save_dir: ${hydra:runtime.output_dir}/seg_masks
 
-
-
+synapse_submission:
+  _target_: src.callbacks.synapse_submission_callback.SynapseSubmissionCallBack
+  auth_file: ${synapse.auth_file}
+  syn_proj_id: ${synapse.syn_proj_id}
+  pred_labels_path: ${hydra:runtime.output_dir}/seg_masks
+  eval_images_path: ${data.data_dir}/test
+  syn_eval_id: '9615339'
+  zip_file_name: ${task_tag}_${now:%Y-%m-%d}_${now:%H-%M-%S}
+  name: ${.zip_file_name}
 
 rich_progress_bar:
   _target_: lightning.pytorch.callbacks.RichProgressBar
+
 model_summary:
   max_depth: -1
+
 learningrate_monitor:
   _target_: lightning.pytorch.callbacks.LearningRateMonitor
   logging_interval: step # the interval at which to log the learning rate
   log_momentum: False # whether to log the momentum
+
 model_checkpoint:
   _target_: lightning.pytorch.callbacks.ModelCheckpoint
   monitor: val/dice

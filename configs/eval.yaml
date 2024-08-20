@@ -1,34 +1,61 @@
 # @package _global_
 
+# specify here default configuration
+# order of defaults determines the order in which configs override each other
 defaults:
   - _self_
-  - data: noise_sample_cifar
-  - model: diffusion_cifar
-  - logger: null
-  - trainer: ddp
+  - data: brats23
+  - model: nnunet
+  - synapse: syn_acc_rsanyal419_gmail
+  - callbacks: default
+  ## set logger here or use command line (e.g. `python train.py logger=tensorboard`)
+  - logger: [csv, wandb] 
+  # - logger: csv
+  - trainer: gpu
   - paths: default
-  - extras: default
+  # - extras: default
   - hydra: default
 
-task_name: "eval"
+  # experiment configs allow for version control of specific hyperparameters
+  # e.g. best hyperparameters for given model and datamodule
+  - experiment: null
 
+  # config for hyperparameter optimization
+  - hparams_search: null
+
+  # optional local config for machine/user specific settings
+  # it's optional since it doesn't need to exist and is excluded from version control
+  # - optional local: default
+
+  # debugging config (enable through command line, e.g. `python train.py debug=default)
+  - debug: null
+
+# task name, determines output directory path
+task_name: "predict"
+
+task_tag: "BraTS23-nnUNET_baseline_0"
+
+# tags to help you identify your experiments
+# you can overwrite this in experiment configs
+# overwrite from command line with `python train.py tags="[first_tag, second_tag]"`
 tags: ["dev"]
 
-# passing checkpoint path is necessary for evaluation
-#ckpt_path: "/home/sanyal/DATA/models/guided-diff-wts/64x64_diffusion.pt"
-ckpt_path: "/home/sanyal/DATA/diffusion-lightning-hydra-out/logs/train/runs/2024-05-20_20-49-47/checkpoints/model_global_step=50000.0.ckpt"
 
-extra_cfg:
-  clip_denoised: True
+time: ${now:%Y-%m-%d}_${now:%H-%M-%S}
 
-  num_samples: ${data.num_samples}
+# set False to skip model training
+train: False
 
-  batch_size: ${data.batch_size}
+# evaluate on test set, using best model weights achieved during training
+# lightning chooses best weights based on the metric specified in checkpoint callback
+test: False
 
-  use_ddim: False
+predict: True
 
-  eta: null
+# simply provide checkpoint path to resume training
+ckpt_path: '${paths.log_dir}/BraTS23-nnUNET_baseline_0/train/runs/2024-08-08_13-23-09/csv/version_0/checkpoints/epoch=82-step=10292.ckpt'
+#ckpt_path: '${paths.log_dir}/BraTS23-SwinUNETR_baseline_0/train/runs/2024-08-08_17-26-44/csv/version_0/checkpoints/epoch=70-step=17608.ckpt'
 
-  log_interval: 100
+# seed for random number generators in pytorch, numpy and python.random
+seed: 123
 
-  output_dir: ${hydra:runtime.output_dir}
