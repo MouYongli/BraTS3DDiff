@@ -45,7 +45,7 @@ sampler:
 diffusion:
   _target_: src.models.diffusion.build_diffusion.BuildDiffusion
   steps: 1000
-  sample_steps: 50
+  sample_steps: 10
   noise_schedule: linear
   model_mean_type: START_X
   model_var_type: FIXED_LARGE
@@ -59,10 +59,14 @@ extra_kwargs:
   roi_size: ${data.roi_size}
   add_deno_loss: True
   add_mse_loss: False
+  pred_type: ddim_sample_uncer_aware
+  uncer_step: 4
+
 
 inferer:
-  _target_: monai.inferers.SlidingWindowInferer
+  _target_: src.inferer.sliding_window_infer.CustomSlidingWindowInferer
   roi_size: ${data.roi_size}
+  viz: False
   sw_batch_size: 1
   overlap: 0.25
 

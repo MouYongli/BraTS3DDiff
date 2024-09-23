@@ -3,7 +3,7 @@ import os
 from typing import Any, Dict, Tuple
 
 import numpy as np
-import torch.distributed as dist
+
 from lightning import LightningModule
 from torchmetrics import MeanMetric
 import torch as th
@@ -18,13 +18,8 @@ from src.models.diffusion.timestep_sampler import (
     UniformSampler,
 )
 from src.models.utils.utils import (
-    aggregate_timestep_quantile_losses,
-    get_timestep_quantile_losses,
-    mean_flat,
-    params_to_state_dict,
-    state_dict_to_params,
-    update_ema,
     compute_subregions_pred_metrics,
+    compute_uncertainty_based_fusion,
 )
 from src.loss.brats_loss import BraTSLoss
 from src.loss.denoising_loss import DenoisingLoss
@@ -36,10 +31,14 @@ from src.models.networks.unet.basic_unet_denoise import BasicUNetDenoise
 from src.models.networks.unet.basic_unet import BasicUNetEncoder
 from src.models.diffusion.build_diffusion import BuildDiffusion
 
-from monai.inferers import SlidingWindowInferer
+from monai.inferers.inferer import Inferer, SlidingWindowInferer
+from src.inferer.sliding_window_infer import CustomSlidingWindowInferer
 from monai.metrics import DiceMetric, compute_hausdorff_distance
-
 from src.models.diffusion.enums import *
+from src.utils.visualization import plot_mask
+
+#from visdom import Visdom
+#vis = Visdom(port=8097)
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
@@ -117,33 +116,31 @@ class DenoisingDiffusionSimplNMbLitModule(LightningModule):
 
 
     def on_load_checkpoint(self, checkpoint):
-        self.ema_params = [
-            state_dict_to_params(self.net, ema_state_dict)
-            for ema_state_dict in checkpoint["ema_state_dicts"]
-        ]
+        pass
 
     def on_save_checkpoint(self, checkpoint):
-        checkpoint["ema_state_dicts"] = [
-            params_to_state_dict(self.net, params) for params in self.ema_params
-        ]
+        pass
 
 
-    def forward(self, image=None, x_start=None, x_t=None, t=None, denoise_out=None, pred_type=None):
+    def forward(self, **kwargs):
         """Executes different functions of gaussian diffusion
             embeddings refer to image embeddings
         """
-        if pred_type == "q_sample":
+
+        def _q_sample(x_start,t):
             noise = th.randn_like(x_start)
             x_t = self.diffusion.q_sample(x_start, t, noise=noise)
             return x_t, noise
 
-        elif pred_type == "denoise_out":
+        def _denoise(x_t,t,image):
             embeddings = self.embed_net(image)
             denoise_out = self.net(x_t, t=t, image=image, embeddings=embeddings)
             return denoise_out
 
-        elif pred_type == "pred_xstart":
-            #predict x_start from x_t
+        def _pred_xstart(x_t,t,denoise_out,image=None):
+            if denoise_out is None:
+                assert image is not None
+                denoise_out = _denoise(x_t,t,image)
             if self.diffusion.model_mean_type == ModelMeanType.START_X:
                 pred_xstart = denoise_out
             elif self.diffusion.model_mean_type == ModelMeanType.EPSILON:
@@ -152,12 +149,85 @@ class DenoisingDiffusionSimplNMbLitModule(LightningModule):
                 raise NotImplementedError(self.diffusion.model_mean_type)
             return pred_xstart
 
-        elif pred_type == "ddim_sample":
+        def _ddim_sample(image):
             embeddings = self.embed_net(image)
             B,C,W,H,D = image.shape
-            sample_out = self.sample_diffusion.ddim_sample_loop(self.net, (B, self.hparams.extra_kwargs.number_targets, W, H,D), model_kwargs={"image": image, "embeddings": embeddings})
+            sample_out = self.sample_diffusion.ddim_sample_loop(self.net, 
+                                                    (B, self.hparams.extra_kwargs.number_targets, W, H,D), 
+                                                        model_kwargs={"image": image, "embeddings": embeddings})
             sample_out = sample_out["sample"]
             return sample_out
+
+        def _ddim_sample_sw_viz(image,**viz_kwargs):
+            #function for sampling visualization for each sliding window
+            embeddings = self.embed_net(image)
+            B,C,W,H,D = image.shape
+            sample_out = self.sample_diffusion.ddim_sample_loop(self.net, 
+                                                    (B, self.hparams.extra_kwargs.number_targets, W, H,D), 
+                                                        model_kwargs={"image": image, "embeddings": embeddings},
+                                                        viz_kwargs=viz_kwargs)
+            sample_out = sample_out["sample"]
+            #vis.close()
+            return sample_out
+
+
+        def _ddim_sample_uncer_aware(image):
+            #uncertainty fusion based frpm diffunet
+            embeddings = self.embed_net(image)
+            B,C,W,H,D = image.shape
+            uncer_step = self.hparams.extra_kwargs.uncer_step
+            sample_outputs = []
+            for i in range(uncer_step):
+                sample_outputs.append(self.sample_diffusion.ddim_sample_loop(self.net, (B, self.hparams.extra_kwargs.number_targets, W, H,D), model_kwargs={"image": image, "embeddings": embeddings},viz_kwargs=None))
+            sample_return = compute_uncertainty_based_fusion(sample_outputs, (B, self.hparams.extra_kwargs.number_targets, W, H,D), uncer_step=uncer_step, num_sample_timesteps=self.sample_diffusion.num_timesteps)
+            return sample_return.to(image)
+
+
+        def _ddim_sample_uncer_aware_viz(image,**viz_kwargs):
+            #uncertainty fusion based frpm diffunet
+            embeddings = self.embed_net(image)
+            B,C,W,H,D = image.shape
+            uncer_step = self.hparams.extra_kwargs.uncer_step
+            sample_outputs = []
+            for i in range(uncer_step):
+                viz_kwargs.update({'uncer_step': i})
+                sample_outputs.append(self.sample_diffusion.ddim_sample_loop(self.net, (B, self.hparams.extra_kwargs.number_targets, W, H,D), model_kwargs={"image": image, "embeddings": embeddings},viz_kwargs=viz_kwargs))
+            sample_return = compute_uncertainty_based_fusion(sample_outputs, (B, self.hparams.extra_kwargs.number_targets, W, H,D), uncer_step=uncer_step, num_sample_timesteps=self.sample_diffusion.num_timesteps)
+
+            viz_kwargs['title'] = f"Final Generated Mask"
+            viz_kwargs['win'] = 'final_mask'
+            viz_kwargs['vis'] = vis
+            viz_kwargs['close'] = True
+            plot_mask(sample_return[0], **viz_kwargs)
+            #vis.close()
+
+            return sample_return.to(image)
+
+
+        pred_type = kwargs.get('pred_type')
+        assert pred_type is not None
+
+        if pred_type == "q_sample":
+            return _q_sample(kwargs.get('x_start'),kwargs.get('t'))
+
+        elif pred_type == "denoise_out":
+            return _denoise(kwargs.get('x_t'),kwargs.get('t'),kwargs.get('image'))
+
+        elif pred_type == "pred_xstart":
+            #predict x_start from x_t
+            return _pred_xstart(kwargs.get('x_t'),kwargs.get('t'),kwargs.get('denoise_out'),kwargs.get('image'))
+
+        elif pred_type == "ddim_sample":
+            return _ddim_sample(kwargs.get('image'))
+
+        elif pred_type == "ddim_sample_sw_viz":
+            return _ddim_sample_sw_viz(kwargs.pop('image'),**kwargs)
+
+        elif pred_type == "ddim_sample_uncer_aware":
+            return _ddim_sample_uncer_aware(kwargs.get('image'))
+
+        elif pred_type == "ddim_sample_uncer_aware_viz":
+            return _ddim_sample_uncer_aware_viz(kwargs.pop('image'),**kwargs)
 
 
     def on_train_start(self) -> None:
@@ -165,18 +235,6 @@ class DenoisingDiffusionSimplNMbLitModule(LightningModule):
         # by default lightning executes validation step sanity checks before training starts,
         # so it's worth to make sure validation metrics don't store results from these checks
         log.info("Started Training...")
-
-        # on_train_start, self.net.parameters() tensors are in device (cuda)
-        # so, move ema_params tensors to same device (cuda) as net_params,
-        # and then detach them so no gradient backprop on ema params
-        ema_params_rates = []
-        for rate, params in zip(self.ema_rate, self.ema_params):
-            ema_params_rate = []
-            for targ, src in zip(params, list(self.net.parameters())):
-                targ = targ.to(src).detach()
-                ema_params_rate.append(targ)
-            ema_params_rates.append(ema_params_rate)
-        self.ema_params = ema_params_rates
 
 
     def model_step(self, batch: Tuple[th.Tensor, Any]) -> th.Tensor:
@@ -207,19 +265,10 @@ class DenoisingDiffusionSimplNMbLitModule(LightningModule):
         seg_losses = self.criterion(pred_xstart,mask)
         loss_dice = seg_losses['dice_loss']
         loss_bce = seg_losses['bce_loss']
-        loss_mse = seg_losses['mse_loss']
 
-        if self.diffusion.model_mean_type == ModelMeanType.START_X:
-            sum_loss = loss_dice + loss_bce + loss_mse
-            if self.hparams.extra_kwargs.add_deno_loss_mean_type_xstart:
-                sum_loss += deno_loss
+        loss = loss_dice + loss_bce + deno_loss
 
-        elif self.diffusion.model_mean_type == ModelMeanType.EPSILON:
-            sum_loss = loss_dice + loss_bce + deno_loss
-            if self.hparams.extra_kwargs.add_xstart_mse_loss_mean_type_epsilon:
-                sum_loss += loss_mse
-
-        seg_losses.update({'deno_loss':deno_loss,'loss':sum_loss})
+        seg_losses.update({'deno_loss':deno_loss,'loss':loss})
         return seg_losses
 
 
@@ -233,14 +282,9 @@ class DenoisingDiffusionSimplNMbLitModule(LightningModule):
         """
         all_losses = self.model_step(batch)
         self._log_scores(all_losses,on_step=True,on_epoch=True,prog_bar=True,prefix='train')
-
-        # update ema
-        for rate, params in zip(self.ema_rate, self.ema_params):
-            update_ema(params, list(self.net.parameters()), rate=rate)
-
+        self.log(f"train/loss", all_losses['loss'], on_step=True, on_epoch=True, prog_bar=True)
         # update and log metrics
         #self.train_loss(loss)
-
         self.log(
             "global_step", self.global_step, on_step=True, on_epoch=False, prog_bar=True
         )
@@ -254,30 +298,49 @@ class DenoisingDiffusionSimplNMbLitModule(LightningModule):
     ) -> None:
         pass
 
-
-    def validation_step(self, batch):
+    def val_test_step(self,batch,mode='val'):
         #image: Nx4xWxHxD (4 Image Channels)
         #mask: NxCxWxHxD  (C= Tumor subregions Channels)
         image, mask, foreground = batch["image"], batch["mask"], batch["foreground"]
         mask = mask.float()
         N,C,W,H,D = mask.shape
         subregions_names = self.trainer.datamodule.subregions_names
+        im_channels = self.trainer.datamodule.im_channels
         assert len(subregions_names) == C
 
         #Evaluate on the entire image using sliding window inference
-        logits = self.inferer(inputs=image,network=self.forward,pred_type="ddim_sample") * foreground
+        if self.inferer.viz:
+            logits = self.inferer(inputs=image,network=self.forward,pred_type=self.hparams.extra_kwargs.pred_type,\
+                            gt_mask=mask,subregions=subregions_names,im_channels=im_channels) * foreground
+        else:
+            logits = self.inferer(inputs=image,network=self.forward,pred_type=self.hparams.extra_kwargs.pred_type) * foreground
 
         #compute loss on raw logits
         seg_losses = self.criterion(logits, mask)
-        seg_losses['loss'] = seg_losses["dice_loss"] + seg_losses["bce_loss"] + seg_losses["mse_loss"]
-        self._log_scores(seg_losses,prefix='val',on_epoch=True,prog_bar=True)
+        seg_losses['loss'] = seg_losses["dice_loss"] + seg_losses["bce_loss"]
+        self._log_scores(seg_losses,prefix=mode,on_epoch=True,prog_bar=True)
+        self.log(f"{mode}/loss", seg_losses['loss'], on_step=False, on_epoch=True, prog_bar=True)
 
         #compute scores on binary logits for every subregion
         logits = logits.sigmoid().gt(0.5)
         pred_scores = compute_subregions_pred_metrics(logits,mask,C,subregions_names)
+        self._log_scores(pred_scores,prefix=mode,on_epoch=True,prog_bar=True)
+        return logits,pred_scores
         #pred_scores = {f"val/{k}":v for k,v in pred_scores.items()}
-        self._log_scores(pred_scores,prefix='val',on_epoch=True,prog_bar=True)
 
+
+    def validation_step(self, batch):
+        return self.val_test_step(batch,mode='val')
+
+    def test_step(self, batch: Any, batch_idx: int):
+        return self.val_test_step(batch,mode='test')
+
+    def predict_step(self, batch):
+        datas, file_ids = batch
+        images, foregrounds = datas["image"], datas["foreground"]
+        logits = self.inferer(inputs=images,network=self.forward,pred_type="ddim_sample") * foregrounds
+        logits = logits.sigmoid().gt(0.5)
+        return logits,file_ids
 
 
     def _log_scores(self,scores:dict,prefix='train',on_epoch=False,on_step=False,prog_bar=False):
@@ -296,18 +359,6 @@ class DenoisingDiffusionSimplNMbLitModule(LightningModule):
         """
         if self.hparams.compile and stage == "fit":
             self.net = th.compile(self.net)
-
-        if stage == "fit":
-            ema_rate = self.hparams.extra_kwargs.ema_rate
-            self.ema_rate = (
-                [ema_rate]
-                if isinstance(ema_rate, float)
-                else [float(x) for x in ema_rate.split(",")]
-            )
-            self.ema_params = [
-                copy.deepcopy(list(self.net.parameters()))
-                for _ in range(len(self.ema_rate))
-            ]
 
 
     def configure_optimizers(self) -> Dict[str, Any]:

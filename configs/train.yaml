@@ -4,14 +4,15 @@
 # order of defaults determines the order in which configs override each other
 defaults:
   - _self_
-  - data: brats23
-  - model: deno_diff
+  - data: brats23_patch_vol
+  - model: swinunetr_vol_pred
   - callbacks: default
-  - logger: many_loggers # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
+  - logger: [csv,wandb] # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
   - trainer: gpu
   - paths: default
   - extras: default
   - hydra: default
+  - synapse: syn_acc_rsanyal419_gmail
 
   # experiment configs allow for version control of specific hyperparameters
   # e.g. best hyperparameters for given model and datamodule
@@ -30,7 +31,7 @@ defaults:
 # task name, determines output directory path
 task_name: "train"
 
-task_tag: "BraTS23-DiffUNet-roi_96-meantype_xstart-with_deno_loss-no_mse_loss"
+task_tag: "BraTS23-SwinUnetR-patch_vol_roi_128"
 
 # tags to help you identify your experiments
 # you can overwrite this in experiment configs
@@ -45,7 +46,7 @@ train: True
 test: False
 
 # simply provide checkpoint path to resume training
-ckpt_path: null
+ckpt_path: /home/sanyal/Projects/BraTS3DDiff/logs/bratseg_logs/bratseg_baselines/BraTS23-SwinUnetR-patch_vol_roi_128/train/runs/2024-09-21_23-09-30/csv/version_0/checkpoints/epoch=90-step=90181.ckpt
 
 # seed for random number generators in pytorch, numpy and python.random
 seed: null

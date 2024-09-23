@@ -11,8 +11,11 @@ from src.models.utils.utils import mean_flat
 
 from .enums import *
 from .losses import discretized_gaussian_log_likelihood, normal_kl
+from src.utils.visualization import plot_image_and_mask, plot_mask
 
-
+from visdom import Visdom
+vis = Visdom(port=8097)
+import time
 class GaussianDiffusion:
     """Utilities for training and sampling diffusion models.
 
@@ -491,6 +494,7 @@ class GaussianDiffusion:
         sample = mean_pred + nonzero_mask * sigma * noise
         return {"sample": sample, "pred_xstart": out["pred_xstart"],  "model_output": out["model_output"]}
 
+
     def ddim_reverse_sample(
         self,
         model,
@@ -527,6 +531,7 @@ class GaussianDiffusion:
 
         return {"sample": mean_pred, "pred_xstart": out["pred_xstart"]}
 
+
     def ddim_sample_loop(
         self,
         model,
@@ -536,6 +541,7 @@ class GaussianDiffusion:
         denoised_fn=None,
         cond_fn=None,
         model_kwargs=None,
+        viz_kwargs=None,
         device=None,
         progress=False,
         eta=0.0,
@@ -545,10 +551,12 @@ class GaussianDiffusion:
 
         Same usage as p_sample_loop().
         """
+
         final = None
         all_samples = []
         all_model_output = []
         intermediate_samples = []
+
         for sample in self.ddim_sample_loop_progressive(
             model,
             shape,
@@ -557,6 +565,7 @@ class GaussianDiffusion:
             denoised_fn=denoised_fn,
             cond_fn=cond_fn,
             model_kwargs=model_kwargs,
+            viz_kwargs=viz_kwargs,
             device=device,
             progress=progress,
             eta=eta,
@@ -568,7 +577,10 @@ class GaussianDiffusion:
         final["intermediate_samples"] = intermediate_samples
         final["all_samples"] = all_samples
         final["all_model_outputs"] = all_model_output
+
+        #time.sleep(1)
         return final
+
 
     def ddim_sample_loop_progressive(
         self,
@@ -579,6 +591,7 @@ class GaussianDiffusion:
         denoised_fn=None,
         cond_fn=None,
         model_kwargs=None,
+        viz_kwargs=None,
         device=None,
         progress=False,
         eta=0.0,
@@ -601,10 +614,21 @@ class GaussianDiffusion:
         if progress:
             # Lazy import so that we don't depend on tqdm.
             from tqdm.auto import tqdm
-
             indices = tqdm(indices)
 
         for i in indices:
+            #intermediate sample visualization
+            if viz_kwargs is not None:
+                if viz_kwargs.get('uncer_step') is not None:
+                    viz_kwargs['title'] = f"Mask sample at uncer_step={viz_kwargs['uncer_step']}, t={i}"
+                    viz_kwargs['win'] = f"sampling_masks_{viz_kwargs['uncer_step']}"
+                else:
+                    viz_kwargs['title'] = f"Mask sample at t={i}"
+                    viz_kwargs['win'] = 'sampling_masks'
+
+                viz_kwargs['vis'] = vis
+                plot_mask(img[0].cpu(), **viz_kwargs)
+
             t = th.tensor([i] * shape[0], device=device)
             with th.no_grad():
                 out = self.ddim_sample(

@@ -1,9 +1,9 @@
 from operator import itemgetter
 
 import torch.distributed as dist
+import torch
 
 from monai.metrics import DiceMetric
-from .metrics import hausdorff_distance_95, recall
 
 def zero_grad(params):
     for param in params:
@@ -123,24 +123,55 @@ def get_timestep_quantile_losses(ts, weights, losses, num_timesteps, qt_losses_d
     return qt_losses_dict
 
 
-def compute_subregions_pred_metrics(y_pred,y_true,C,subregions_names):
+def compute_subregions_pred_metrics(y_pred,y_true,C,subregions_names,suffix_key=None):
     #expects binarized y_pred 
     #C = #subregions
     dice_metric = DiceMetric(include_background=False, reduction="mean_batch", get_not_nans=True, ignore_empty=False)
     #scores = {'dice':0.0,'hd95':0.0,'recall':0.0}
-    scores = {'dice':0.0}
+    
+    if suffix_key is not None:
+        #suffix_key = "-key1=val1-key2=val2"
+        suffix_key = '-'.join([f"{k}={v}" for k, v in suffix_key.items()])
+        suffix_key = f"-{suffix_key}"
+    else:
+        suffix_key = ""
+
+    scores = {f'dice{suffix_key}':0.0}
 
     for c in range(C):
-        scores[f"dice_{subregions_names[c]}"]= dice_metric(y_pred[:, c].unsqueeze(1), y_true[:, c].unsqueeze(1)).mean()
+        scores[f"dice_{subregions_names[c]}{suffix_key}"]= dice_metric(y_pred[:, c].unsqueeze(1), y_true[:, c].unsqueeze(1)).mean()
         #scores[f"hd95_{subregions_names[c]}"] = hausdorff_distance_95(y_pred[:, c].unsqueeze(1), y_true[:, c].unsqueeze(1))
         #scores[f"recall_{subregions_names[c]}"] = recall(y_pred[:, c].unsqueeze(1), y_true[:, c].unsqueeze(1))
 
-        scores[f"dice"] += scores[f"dice_{subregions_names[c]}"]
+        scores[f"dice{suffix_key}"] += scores[f"dice_{subregions_names[c]}{suffix_key}"]
         #scores[f"hd95"] += scores[f"hd95_{subregions_names[c]}"]
         #scores[f"recall"] += scores[f"recall_{subregions_names[c]}"]
 
-    scores[f"dice"] /= C
+    scores[f"dice{suffix_key}"] /= C
     #scores[f"hd95"] /= C
     #scores[f"recall"] /= C
+    return scores, scores[f"dice{suffix_key}"]
 
-    return scores
+
+
+def compute_uncer(pred_out):
+    pred_out = torch.sigmoid(pred_out)
+    pred_out[pred_out < 0.001] = 0.001
+    uncer_out = - pred_out * torch.log(pred_out)
+    return uncer_out
+
+
+def compute_uncertainty_based_fusion(sample_outputs,out_shape,uncer_step=4,num_sample_timesteps=10):
+    #Adapted from DIffUNet
+    sample_return = torch.zeros(out_shape)
+    for index in range(num_sample_timesteps):
+        uncer_out = 0
+        for i in range(uncer_step):
+            uncer_out += sample_outputs[i]["all_model_outputs"][index]
+        uncer_out = uncer_out / uncer_step
+        uncer = compute_uncer(uncer_out).cpu()
+        w = torch.exp(torch.sigmoid(torch.tensor((index + 1) / num_sample_timesteps)) * (1 - uncer))
+        for i in range(uncer_step):
+            sample_return += w * sample_outputs[i]["all_samples"][index].cpu()
+
+    return sample_return
