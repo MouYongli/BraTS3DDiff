@@ -1,9 +1,9 @@
-_target_: src.datasets.brats_tumor_vol_datamodule.BraTSDataModule
+_target_: src.datasets.patch_tumor_vol_frac_datamodule.BraTSDataModule
 data_dir: ${paths.data_dir}/BraTS-Data/BraTS2023-GLI
 batch_size: 1
 val_split: 0.20
 roi_size: [128, 128, 128]
-num_workers: 127
+num_workers: 1
 dim_order: 'w h d'
 num_targets: 3
 num_modalities: 4
@@ -27,9 +27,7 @@ im_channels:
 - t1c
 - t2w
 
-patch_sizes:
-- 16
-- 32
+patch_sizes: [16, 32]
 
 sep: '-'
 ext: '.nii.gz'

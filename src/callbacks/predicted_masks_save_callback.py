@@ -31,8 +31,8 @@ class PredictedMasksSaveCallBack(Callback):
         return mask_labels
     
     @staticmethod
-    def load_affine_and_header(data_dir, file_id, im_channels, sep, ext):
-        im_path = os.path.join(data_dir,'test',file_id,f"{file_id}{sep}{im_channels[0]}{ext}")
+    def load_affine_and_header(data_dir, file_id, im_channels, sep, ext, split='test'):
+        im_path = os.path.join(data_dir,split,file_id,f"{file_id}{sep}{im_channels[0]}{ext}")
         ni_data = nibabel.load(im_path)
         affine, header = ni_data.affine, ni_data.header
         return affine, header
@@ -55,6 +55,66 @@ class PredictedMasksSaveCallBack(Callback):
             affine, header = self.load_affine_and_header(data_dir,file_id,im_channels,sep,ext)
             pred_mask = nibabel.nifti1.Nifti1Image(pred_mask, affine, header=header)
             nibabel.save(pred_mask, os.path.join(self.save_dir, file_id + ".nii.gz"))
+
+
+    def on_predict_start(self, trainer, pl_module):
+        os.makedirs(self.save_dir,exist_ok=True)
+
+
+
+class MultipleMasksSaveCallBack(PredictedMasksSaveCallBack):
+    def __init__(self, save_dir):
+        super().__init__(save_dir)
+
+    def on_test_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        labels = trainer.datamodule.hparams.labels
+        dim_order = trainer.datamodule.hparams.dim_order
+        data_dir = trainer.datamodule.hparams.data_dir
+        im_channels = trainer.datamodule.hparams.im_channels
+        sep = trainer.datamodule.hparams.sep
+        ext = trainer.datamodule.hparams.ext
+
+        pred_masks_dict, file_ids = outputs
+
+        for key in pred_masks_dict.keys():
+            out_dir = os.path.join(self.save_dir,key)
+            os.makedirs(out_dir,exist_ok=True)
+
+            pred_masks = self.mask_regions_to_labels(data_dir, pred_masks_dict[key], labels, dim_order)
+            N, W, H, D = pred_masks.shape
+            for i in range(N):
+                pred_mask = pred_masks[i].cpu().numpy()
+                file_id = file_ids[i]
+                affine, header = self.load_affine_and_header(data_dir,file_id,im_channels,sep,ext,split='val')
+                pred_mask = nibabel.nifti1.Nifti1Image(pred_mask, affine, header=header)
+                nibabel.save(pred_mask, os.path.join(out_dir, file_id + ".nii.gz"))
+
+
+    def on_test_start(self, trainer, pl_module):
+        os.makedirs(self.save_dir,exist_ok=True)
+
+    def on_predict_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        labels = trainer.datamodule.hparams.labels
+        dim_order = trainer.datamodule.hparams.dim_order
+        data_dir = trainer.datamodule.hparams.data_dir
+        im_channels = trainer.datamodule.hparams.im_channels
+        sep = trainer.datamodule.hparams.sep
+        ext = trainer.datamodule.hparams.ext
+
+        pred_masks_dict, file_ids = outputs
+
+        for key in pred_masks_dict.keys():
+            out_dir = os.path.join(self.save_dir,key)
+            os.makedirs(out_dir,exist_ok=True)
+
+            pred_masks = self.mask_regions_to_labels(data_dir, pred_masks_dict[key], labels, dim_order)
+            N, W, H, D = pred_masks.shape
+            for i in range(N):
+                pred_mask = pred_masks[i].cpu().numpy()
+                file_id = file_ids[i]
+                affine, header = self.load_affine_and_header(data_dir,file_id,im_channels,sep,ext,split='test')
+                pred_mask = nibabel.nifti1.Nifti1Image(pred_mask, affine, header=header)
+                nibabel.save(pred_mask, os.path.join(out_dir, file_id + ".nii.gz"))
 
 
     def on_predict_start(self, trainer, pl_module):

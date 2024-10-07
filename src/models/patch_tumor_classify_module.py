@@ -7,13 +7,14 @@ from monai.metrics import DiceMetric
 import os
 from einops import repeat, rearrange, reduce
 
-from src.loss.vol_pred_loss import VolumePredLoss
+from src.loss.brats_loss import BraTSLoss
+
+from src.loss.patch_tumor_loss import PatchTumorLoss
 from monai.inferers import SlidingWindowInferer
 from src.models.utils.utils import compute_subregions_pred_metrics
-from copy import deepcopy
 import torchmetrics
 
-class BrainTumorVolPredLitModule(LightningModule):
+class PatchTumorClassifyLitModule(LightningModule):
     """LightningModule for Brain Tumor Vol Prediction.
     """
 
@@ -22,13 +23,17 @@ class BrainTumorVolPredLitModule(LightningModule):
         net: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
+        inferer: SlidingWindowInferer,
+        extra_kwargs: dict
     ):
         super().__init__()
 
         self.save_hyperparameters(logger=False)
 
         self.net = net
-        self.criterion = VolumePredLoss()
+        self.criterion = PatchTumorLoss(mode='classify',patch_res=self.hparams.extra_kwargs.patch_sizes)
+        self.inferer = inferer
+
         # metric objects for calculating and averaging loss across batches
         # for averaging loss across batches
         self.mean_train_loss = MeanMetric()
@@ -39,8 +44,8 @@ class BrainTumorVolPredLitModule(LightningModule):
 
 
 
-    def forward(self, x: torch.Tensor):
-        return self.net(x)
+    def forward(self, x: torch.Tensor,pred_mode='classify'):
+        return self.net(x,pred_mode=pred_mode)
 
     def on_train_start(self):
         # by default lightning executes validation step sanity checks before training starts,
@@ -51,9 +56,9 @@ class BrainTumorVolPredLitModule(LightningModule):
     def model_step(self, batch: Any):
         #image: NxCxWxHxD (C=Channels)
         #mask: NxCxWxHxD  (C=Tumor subregions)
-        image, mask, volume_maps = batch["image"], batch["mask"], batch["volume_maps"]
-        pred_volume_maps= self.forward(image)
-        loss = self.criterion(pred_volume_maps, volume_maps)
+        image, mask, patch_tumor_labels = batch["image"], batch["mask"], batch["patch_tumor_labels"]
+        pred_patch_tumor_labels= self.forward(image,pred_mode='classify')['labels']
+        loss = self.criterion(pred_patch_tumor_labels, patch_tumor_labels)
         return loss
 
     def training_step(self, batch: Any, batch_idx: int):
@@ -62,35 +67,32 @@ class BrainTumorVolPredLitModule(LightningModule):
         self._log_scores(loss,on_step=True,on_epoch=True,prog_bar=True,prefix='train')
         return {"loss": loss['loss']}
 
+
     def val_test_step(self,batch,mode='val'):
         #image: BxNx4xWxHxD (4 Image Channels,B=batch size,N=num of sliding windows in an image)
         #mask: BxNxCxWxHxD  (C= Tumor subregions Channels)
-        image, mask, volume_maps = batch["image"], batch["mask"], batch["volume_maps"]
-        N,C,W,H,D = mask.shape
+        image, mask, patch_tumor_labels = batch["image"], batch["mask"], batch["patch_tumor_labels"]
         subregions_names = self.trainer.datamodule.subregions_names
-        assert len(subregions_names) == C
 
         #Evaluate on the entire image using sliding window inference
-        pred_volume_maps = self.forward(image)
+        #logits = self.inferer(inputs=image,network=self.forward,pred_mode='classify')
+        logits = self.forward(image,pred_mode='classify')['labels']
 
         #compute loss on raw logits
-        loss = self.criterion(pred_volume_maps, volume_maps)
-        #self._log_scores(seg_losses,prefix=mode,on_step=False,on_epoch=True,prog_bar=True)
+        loss = self.criterion(logits, patch_tumor_labels)
+        self._log_scores(loss,prefix=mode,on_step=False,on_epoch=True,prog_bar=True)
         self.log(f"{mode}/loss", loss['loss'], on_step=False, on_epoch=True, prog_bar=True)
 
-        #binarize volume maps
+        #compute pred metrics on binarized logits (dice score)
         patch_sizes = self.trainer.datamodule.hparams.patch_sizes
-        bin_threshs = [0.0,1e-5,1e-3,1e-2]
         mean_dice = 0.0
-        for i in range(len(patch_sizes)):
-            volume_maps[i][volume_maps[i]>0] = 1.0
-            for thresh in bin_threshs:
-                pred_volume_maps_thresh = deepcopy(pred_volume_maps)
-                pred_volume_maps_thresh[i][pred_volume_maps_thresh[i] > thresh] = 1.0
-                pred_scores, dice = compute_subregions_pred_metrics(pred_volume_maps_thresh[i],volume_maps[i],C,subregions_names,suffix_key={'thresh':thresh,'patch_size':patch_sizes[i]})
-                self._log_scores(pred_scores,prefix=mode,on_epoch=True,prog_bar=True)
-                mean_dice += dice
-        mean_dice /= len(patch_sizes) * len(bin_threshs)
+        for patch_size in patch_sizes:
+            pred_scores, dice = compute_subregions_pred_metrics(logits[patch_size],patch_tumor_labels[patch_size],1, \
+                                                        subregions_names,suffix_key={'patch_size':patch_size})
+
+            self._log_scores(pred_scores,prefix=mode,on_epoch=True,prog_bar=True)
+            mean_dice += dice
+        mean_dice /= len(patch_sizes)
         self.log(f"{mode}/dice", mean_dice, on_step=False, on_epoch=True, prog_bar=True)
 
 

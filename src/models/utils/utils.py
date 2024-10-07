@@ -123,34 +123,45 @@ def get_timestep_quantile_losses(ts, weights, losses, num_timesteps, qt_losses_d
     return qt_losses_dict
 
 
-def compute_subregions_pred_metrics(y_pred,y_true,C,subregions_names,suffix_key=None):
-    #expects binarized y_pred 
+def compute_subregions_pred_metrics(y_logits,y_true,C,subregions_names,prefix_key=None,suffix_key=None):
+    #expects non-binarized y_logits
     #C = #subregions
+
+    y_pred = y_logits.sigmoid().gt(0.5)
     dice_metric = DiceMetric(include_background=False, reduction="mean_batch", get_not_nans=True, ignore_empty=False)
     #scores = {'dice':0.0,'hd95':0.0,'recall':0.0}
-    
+
+    if prefix_key is not None:
+        if type(prefix_key) == dict:
+        #suffix_key = "key1=val1-key2=val2-"
+            prefix_key = '-'.join([f"{k}={v}" for k, v in prefix_key.items()])
+        prefix_key = f"{prefix_key}-"
+    else:
+        prefix_key = ""
+
     if suffix_key is not None:
-        #suffix_key = "-key1=val1-key2=val2"
-        suffix_key = '-'.join([f"{k}={v}" for k, v in suffix_key.items()])
+        if type(suffix_key) == dict:
+            #suffix_key = "-key1=val1-key2=val2"
+            suffix_key = '-'.join([f"{k}={v}" for k, v in suffix_key.items()])
         suffix_key = f"-{suffix_key}"
     else:
         suffix_key = ""
 
-    scores = {f'dice{suffix_key}':0.0}
+    scores = {f'{prefix_key}dice{suffix_key}':0.0}
 
     for c in range(C):
-        scores[f"dice_{subregions_names[c]}{suffix_key}"]= dice_metric(y_pred[:, c].unsqueeze(1), y_true[:, c].unsqueeze(1)).mean()
+        scores[f"{prefix_key}dice_{subregions_names[c]}{suffix_key}"]= dice_metric(y_pred[:, c].unsqueeze(1), y_true[:, c].unsqueeze(1)).mean()
         #scores[f"hd95_{subregions_names[c]}"] = hausdorff_distance_95(y_pred[:, c].unsqueeze(1), y_true[:, c].unsqueeze(1))
         #scores[f"recall_{subregions_names[c]}"] = recall(y_pred[:, c].unsqueeze(1), y_true[:, c].unsqueeze(1))
 
-        scores[f"dice{suffix_key}"] += scores[f"dice_{subregions_names[c]}{suffix_key}"]
+        scores[f"{prefix_key}dice{suffix_key}"] += scores[f"{prefix_key}dice_{subregions_names[c]}{suffix_key}"]
         #scores[f"hd95"] += scores[f"hd95_{subregions_names[c]}"]
         #scores[f"recall"] += scores[f"recall_{subregions_names[c]}"]
 
-    scores[f"dice{suffix_key}"] /= C
+    scores[f"{prefix_key}dice{suffix_key}"] /= C
     #scores[f"hd95"] /= C
     #scores[f"recall"] /= C
-    return scores, scores[f"dice{suffix_key}"]
+    return scores, scores[f"{prefix_key}dice{suffix_key}"]
 
 
 

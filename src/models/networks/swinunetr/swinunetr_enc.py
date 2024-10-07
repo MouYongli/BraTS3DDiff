@@ -200,6 +200,16 @@ class SwinUNETREnc(nn.Module):
         self.encoder3 = UnetrBasicBlock(
             spatial_dims=spatial_dims,
             in_channels=8 * feature_size,
+            out_channels=512,
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=True,
+        )
+
+        self.encoder3_1 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=512,
             out_channels=out_channels,
             kernel_size=3,
             stride=1,
@@ -210,13 +220,22 @@ class SwinUNETREnc(nn.Module):
         self.encoder4 = UnetrBasicBlock(
             spatial_dims=spatial_dims,
             in_channels=16 * feature_size,
-            out_channels=out_channels,
+            out_channels=512,
             kernel_size=3,
             stride=1,
             norm_name=norm_name,
             res_block=True,
         )
 
+        self.encoder4_1 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=512,
+            out_channels=out_channels,
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=True,
+        )
 
 
 
@@ -280,15 +299,21 @@ class SwinUNETREnc(nn.Module):
                 f" must be divisible by {self.patch_size}**5."
             )
 
-    def forward(self, x_in):
+    def forward(self, x_in,pred_mode='regress'):
         if not torch.jit.is_scripting():
             self._check_input_size(x_in.shape[2:])
+
         hidden_states_out = self.swinViT(x_in, self.normalize)
-        out_3 = self.encoder3(hidden_states_out[3])
-        out_4 = self.encoder4(hidden_states_out[4])
-        #out_3 = torch.clamp(self.encoder3(hidden_states_out[3]),0,1)
-        #out_4 = torch.clamp(self.encoder4(hidden_states_out[4]),0,1)
-        return (out_3,out_4)
+        enc_3 = self.encoder3(hidden_states_out[3])
+        out_3 = self.encoder3_1(enc_3)
+        enc_4 = self.encoder4(hidden_states_out[4])
+        out_4 = self.encoder4_1(enc_4)
+
+        if pred_mode == 'regress':
+            out_3 = torch.clamp(out_3,0,1)
+            out_4 = torch.clamp(out_4,0,1)
+
+        return {'embeddings':{16:enc_3,32:enc_4},'labels':{16:out_3,32:out_4}}
 
 
 

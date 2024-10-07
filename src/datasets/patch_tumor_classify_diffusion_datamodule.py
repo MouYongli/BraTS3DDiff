@@ -35,8 +35,6 @@ log = RankedLogger(__name__, rank_zero_only=True)
 
 def custom_collate(batch):
     datas = []
-    affines = []
-    headers = []
     file_ids = []
     for item in batch:
         data, file_id = item
@@ -54,7 +52,6 @@ class BraTSDataset(Dataset):
         transforms: Optional[Compose] = None, 
         data_dir: str = "./data/BraTS",
         mode: str = 'train',
-        predict: bool = False,
         preprocess_mask_labels: bool = False,
         dim_order:str='w h d',
         labels: dict = None,
@@ -62,13 +59,14 @@ class BraTSDataset(Dataset):
         im_channels:list=None,
         patch_sizes:list=None,
         sep:str=None,
-        ext:str=None
+        ext:str=None,
+        thresh:int = 0
     ) -> None:
         super().__init__()
 
         self.data_dir = data_dir
         self.mode = mode
-        self.predict = predict
+        self.predict = (mode == 'predict')
         if not os.path.exists(self.data_dir):
             log.warning("BraTS dataset does not exist")
             raise FileNotFoundError
@@ -82,6 +80,7 @@ class BraTSDataset(Dataset):
         self.patch_sizes = patch_sizes
         self.sep = sep
         self.ext = ext
+        self.thresh = thresh
 
     def read_data(self, data_path):
 
@@ -90,7 +89,7 @@ class BraTSDataset(Dataset):
         image = np.stack([nib.load(p).get_fdata().astype(np.float32) for p in im_channel_paths],axis=0)
         image = rearrange(image, f"c {self.dim_order} -> c w h d")
 
-        if not self.predict:
+        if self.mode in ['train', 'val']:
             seg_path = os.path.join(data_path,f"{file_id}{self.sep}seg{self.ext}")
             mask = nib.load(seg_path).get_fdata().astype(np.float32)
             mask = rearrange(mask, f"{self.dim_order} -> w h d")
@@ -98,12 +97,25 @@ class BraTSDataset(Dataset):
                 "image": image,
                 "mask": mask
             }
-        else:
+
+        elif self.mode == 'test':
+            seg_path = os.path.join(data_path,f"{file_id}{self.sep}seg{self.ext}")
+            mask = nib.load(seg_path).get_fdata().astype(np.float32)
+            mask = rearrange(mask, f"{self.dim_order} -> w h d")
+            return ({
+                "image": image,
+                "mask": mask
+            },
+            file_id)
+
+        elif self.mode == 'predict':
             return ({
                 "image": image,
             },
             file_id)
 
+        else:
+            raise ValueError("mode must be in ['train', 'val', 'test', 'predict']")
 
     def separate_mask_labels_into_regions(self,mask: np.ndarray) -> np.ndarray:
         #maps labels to sub-regions
@@ -119,26 +131,36 @@ class BraTSDataset(Dataset):
             subregion_masks.append(subregion_mask > 0)
         return np.stack(subregion_masks,axis=0)
 
-    def compute_patch_tumor_volume(self,mask):
+
+    def label_patches(self,mask):
         #patchify masks into series of (N*N*N) patches
         #and compute fraction of foreground pixels of a mask channel in every patch
         #input: (B)xCxWxHxD
-        #output: (B)xCx(W//N)x(H//N)x(D//N)
+        #output: (B)x1x(W//N)x(H//N)x(D//N)
+        #label patches as tumor/non-tumor based on WT tumor vol frac
+        #mask[0]: only consider WT
         if len(mask.shape) == 4:
             c,w,h,d = mask.shape
+            mask = mask[0].unsqueeze(0)
         elif len(mask.shape) == 5:
             b,c,w,h,d = mask.shape
-        patch_tumor_vols = []
+            mask = mask[:,0].unsqueeze(1)
+
+        patch_tumor_vols = {}
         for patch_size in self.patch_sizes:
             assert w % patch_size == 0 and h % patch_size == 0 and d % patch_size == 0, f"w, h, and d must be divisible by patch_size={patch_size}"
             if len(mask.shape) == 4:
-                mask_patch = mask.reshape(c,w//patch_size,patch_size,h//patch_size,patch_size,d//patch_size,patch_size)
+                mask_patch = mask.reshape(1,w//patch_size,patch_size,h//patch_size,patch_size,d//patch_size,patch_size)
                 patch_tumor_vol = mask_patch.sum(axis=(2, 4, 6))/(patch_size*patch_size*patch_size)
             elif len(mask.shape) == 5:
-                mask_patch = mask.reshape(b,c,w//patch_size,patch_size,h//patch_size,patch_size,d//patch_size,patch_size)
+                mask_patch = mask.reshape(b,1,w//patch_size,patch_size,h//patch_size,patch_size,d//patch_size,patch_size)
                 patch_tumor_vol = mask_patch.sum(axis=(3, 5, 7))/(patch_size*patch_size*patch_size)
-            patch_tumor_vol[patch_tumor_vol > 0] = 1.0
-            patch_tumor_vols.append(patch_tumor_vol)
+
+            #label patches as tumor(1)/non-tumor(0) based on patch tumor vol frac
+            patch_tumor_vol[patch_tumor_vol > self.thresh] = 1.0
+            patch_tumor_vol[patch_tumor_vol <= self.thresh] = 0.0
+            patch_tumor_vols[patch_size] = patch_tumor_vol
+
         return patch_tumor_vols
 
 
@@ -159,13 +181,28 @@ class BraTSDataset(Dataset):
         image with shape C x W x H x D
         volume_map with shape C x W//N x H//N x D//N
         """
-        if not self.predict:
+        if self.mode in ['train', 'val']:
             data = self.read_data(self.image_path[index])
             data["mask"] = self.separate_mask_labels_into_regions(data["mask"]).astype(np.uint8)
+            image = data["image"]
+            foreground = reduce(image, "c w h d -> () w h d", "sum")
+            foreground = np.where(foreground > 0, 1, 0).astype(np.float32)
+            data["foreground"] = foreground
             data = self.transforms(data)
-            data['volume_maps'] = self.compute_patch_tumor_volume(data['mask'])
+            data['patch_tumor_labels'] = self.label_patches(data['mask'])
             return data
-        else:
+
+        elif self.mode == 'test':
+            data, file_id = self.read_data(self.image_path[index])
+            data["mask"] = self.separate_mask_labels_into_regions(data["mask"]).astype(np.uint8)
+            image = data["image"]
+            foreground = reduce(image, "c w h d -> () w h d", "sum")
+            foreground = np.where(foreground > 0, 1, 0).astype(np.float32)
+            data["foreground"] = foreground
+            data = self.transforms(data)
+            return (data, file_id)
+
+        elif self.mode == 'predict':
             data,file_id = self.read_data(self.image_path[index])
             image = data["image"]
             foreground = reduce(image, "c w h d -> () w h d", "sum")
@@ -173,6 +210,9 @@ class BraTSDataset(Dataset):
             data["foreground"] = foreground
             data = self.transforms(data)
             return (data, file_id)
+        
+        else:
+            raise ValueError("mode must be in ['train', 'val', 'test', 'predict']")
 
 
 
@@ -196,7 +236,8 @@ class BraTSDataModule(pl.LightningDataModule):
         im_channels:list = None,
         patch_sizes:list=[16,32],
         sep:str=None,
-        ext:str=None
+        ext:str=None,
+        thresh:int = 0
     ):
         super().__init__()
         self.save_hyperparameters(logger=False)
@@ -211,30 +252,37 @@ class BraTSDataModule(pl.LightningDataModule):
         self.train_transforms = Compose(
             [
                 RandSpatialCropd(
-                    keys=["image", "mask"], 
+                    keys=["image", "mask","foreground"], 
                     roi_size=[w, h, d], 
                     random_size=False, 
                     allow_missing_keys=True),
-                RandFlipd(keys=["image", "mask"], prob=0.5, spatial_axis=-1, allow_missing_keys=True),
-                RandFlipd(keys=["image", "mask"], prob=0.5, spatial_axis=-2, allow_missing_keys=True),
-                RandFlipd(keys=["image", "mask"], prob=0.5, spatial_axis=-3, allow_missing_keys=True),
+                RandFlipd(keys=["image", "mask","foreground"], prob=0.5, spatial_axis=-1, allow_missing_keys=True),
+                RandFlipd(keys=["image", "mask","foreground"], prob=0.5, spatial_axis=-2, allow_missing_keys=True),
+                RandFlipd(keys=["image", "mask","foreground"], prob=0.5, spatial_axis=-3, allow_missing_keys=True),
                 NormalizeIntensityd(keys=["image"], nonzero=True, channel_wise=True, allow_missing_keys=True),
                 RandScaleIntensityd(keys=["image"], factors=0.1, prob=0.5),
                 RandShiftIntensityd(keys=["image"], offsets=0.1, prob=0.5),
                 RandAdjustContrastd(keys=["image"], prob=0.15, gamma=(0.65, 1.5), allow_missing_keys=True),
-                ToTensord(keys=["image", "mask"]),
+                ToTensord(keys=["image", "mask","foreground"]),
             ]
         )
 
         self.val_transforms = Compose(
-            [
+            [  
                 RandSpatialCropd(
-                    keys=["image", "mask"], 
+                    keys=["image", "mask","foreground"], 
                     roi_size=[w, h, d], 
                     random_size=False, 
                     allow_missing_keys=True),
                 NormalizeIntensityd(keys=["image"], nonzero=True, channel_wise=True, allow_missing_keys=True),
-                ToTensord(keys=["image", "mask"])
+                ToTensord(keys=["image", "mask","foreground"])
+            ]
+        )
+
+        self.test_transforms = Compose(
+            [   #DivisiblePadd(keys=['image','mask'], k=[w, h, d], allow_missing_keys=True),
+                NormalizeIntensityd(keys=["image"], nonzero=True, channel_wise=True, allow_missing_keys=True),
+                ToTensord(keys=["image", "mask","foreground"])
             ]
         )
 
@@ -244,9 +292,6 @@ class BraTSDataModule(pl.LightningDataModule):
                 ToTensord(keys=["image", "foreground"]),
             ]
         )
-        if self.hparams.predict_set == 'val':
-            self.val_transforms=self.predict_transforms
-
 
         self.setup()
 
@@ -296,6 +341,7 @@ class BraTSDataModule(pl.LightningDataModule):
         test_paths = self._load_image_paths("test")
 
         self.data_train = BraTSDataset(
+            image_path=train_paths,
             transforms=self.train_transforms,
             data_dir=self.hparams.data_dir, 
             dim_order=self.hparams.dim_order,
@@ -306,10 +352,11 @@ class BraTSDataModule(pl.LightningDataModule):
             sep=self.hparams.sep,
             ext=self.hparams.ext,
             mode='train',
-            image_path=train_paths,
+            thresh=self.hparams.thresh
         )
 
         self.data_val = BraTSDataset(
+            image_path=val_paths,
             transforms=self.val_transforms,
             data_dir=self.hparams.data_dir,
             dim_order=self.hparams.dim_order,
@@ -319,13 +366,28 @@ class BraTSDataModule(pl.LightningDataModule):
             patch_sizes=self.hparams.patch_sizes,
             sep=self.hparams.sep,
             ext=self.hparams.ext,
-            image_path=val_paths,
             mode='val',
-            predict=self.hparams.predict_set == 'val',
+            thresh=self.hparams.thresh
+        )
+
+        self.data_test = BraTSDataset(
+            image_path=val_paths,
+            transforms=self.test_transforms,
+            data_dir=self.hparams.data_dir,
+            dim_order=self.hparams.dim_order,
+            labels=self.hparams.labels,
+            subregions=self.hparams.subregions,
+            im_channels=self.hparams.im_channels,
+            patch_sizes=self.hparams.patch_sizes,
+            sep=self.hparams.sep,
+            ext=self.hparams.ext,
+            mode='test',
+            thresh=self.hparams.thresh
         )
 
 
-        self.data_test = BraTSDataset(
+        self.data_predict = BraTSDataset(
+            image_path=test_paths,
             transforms=self.predict_transforms,
             data_dir=self.hparams.data_dir, 
             dim_order=self.hparams.dim_order,
@@ -335,9 +397,8 @@ class BraTSDataModule(pl.LightningDataModule):
             patch_sizes=self.hparams.patch_sizes,
             sep=self.hparams.sep,
             ext=self.hparams.ext,
-            predict=True,
-            mode='test',
-            image_path=test_paths
+            mode='predict',
+            thresh=self.hparams.thresh
         )
 
 
@@ -358,33 +419,23 @@ class BraTSDataModule(pl.LightningDataModule):
         )
 
     def test_dataloader(self) -> DataLoader:
-        assert self.hparams.predict_set is None
         return DataLoader(
-            dataset=self.data_val,
+            dataset=self.data_test,
             batch_size= self.hparams.batch_size,
             shuffle=False,
+            collate_fn=custom_collate,
             num_workers=self.num_workers
         )
 
     def predict_dataloader(self) -> DataLoader:
-        if self.hparams.predict_set == 'test':
-            return DataLoader(
-                dataset=self.data_test,
-                batch_size= self.hparams.batch_size,
-                shuffle=False,
-                collate_fn=custom_collate,
-                num_workers=self.num_workers
-            )
-        elif self.hparams.predict_set == 'val':
-            return DataLoader(
-                dataset=self.data_val,
-                batch_size= self.hparams.batch_size,
-                shuffle=False,
-                collate_fn=custom_collate,
-                num_workers=self.num_workers
-            )
-        else:
-            raise ValueError("predict_set must be in 'val', 'test'")
+        return DataLoader(
+            dataset=self.data_predict,
+            batch_size= self.hparams.batch_size,
+            shuffle=False,
+            collate_fn=custom_collate,
+            num_workers=self.num_workers
+        )
+
 
 
 

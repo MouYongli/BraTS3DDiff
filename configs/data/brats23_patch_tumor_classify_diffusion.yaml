@@ -1,6 +1,6 @@
-_target_: src.datasets.brats_datamodule.BraTSDataModule
+_target_: src.datasets.patch_tumor_classify_diffusion_datamodule.BraTSDataModule
 data_dir: ${paths.data_dir}/BraTS-Data/BraTS2023-GLI
-batch_size: 4
+batch_size: 2
 val_split: 0.20
 roi_size: [128, 128, 128]
 num_workers: 1
@@ -27,8 +27,9 @@ im_channels:
 - t1c
 - t2w
 
+patch_sizes: [16, 32]
 
 sep: '-'
 ext: '.nii.gz'
 
-predict_set: test
+thresh: 0.0

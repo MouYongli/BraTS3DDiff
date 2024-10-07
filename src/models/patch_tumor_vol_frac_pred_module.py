@@ -7,15 +7,13 @@ from monai.metrics import DiceMetric
 import os
 from einops import repeat, rearrange, reduce
 
-from src.loss.brats_loss import BraTSLoss
-
-from src.loss.vol_pred_loss import VolumePredLoss
+from BraTS3DDiff.src.loss.patch_tumor_loss import VolumePredLoss
 from monai.inferers import SlidingWindowInferer
 from src.models.utils.utils import compute_subregions_pred_metrics
 from copy import deepcopy
 import torchmetrics
 
-class BrainTumorVolPredClassLitModule(LightningModule):
+class BrainTumorVolPredLitModule(LightningModule):
     """LightningModule for Brain Tumor Vol Prediction.
     """
 
@@ -30,7 +28,7 @@ class BrainTumorVolPredClassLitModule(LightningModule):
         self.save_hyperparameters(logger=False)
 
         self.net = net
-        self.criterion = BraTSLoss()
+        self.criterion = VolumePredLoss()
         # metric objects for calculating and averaging loss across batches
         # for averaging loss across batches
         self.mean_train_loss = MeanMetric()
@@ -55,7 +53,7 @@ class BrainTumorVolPredClassLitModule(LightningModule):
         #mask: NxCxWxHxD  (C=Tumor subregions)
         image, mask, volume_maps = batch["image"], batch["mask"], batch["volume_maps"]
         pred_volume_maps= self.forward(image)
-        loss = self.criterion(pred_volume_maps[0], volume_maps[0])
+        loss = self.criterion(pred_volume_maps, volume_maps)
         return loss
 
     def training_step(self, batch: Any, batch_idx: int):
@@ -63,7 +61,6 @@ class BrainTumorVolPredClassLitModule(LightningModule):
         self.log(f"train/loss", loss['loss'], on_step=True, on_epoch=True, prog_bar=True)
         self._log_scores(loss,on_step=True,on_epoch=True,prog_bar=True,prefix='train')
         return {"loss": loss['loss']}
-
 
     def val_test_step(self,batch,mode='val'):
         #image: BxNx4xWxHxD (4 Image Channels,B=batch size,N=num of sliding windows in an image)
