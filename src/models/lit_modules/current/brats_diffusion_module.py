@@ -17,7 +17,7 @@ from src.models.diffusion.timestep_sampler import (
     ScheduleSampler,
     UniformSampler,
 )
-from src.models.utils.utils import (
+from src.utils.model_utils import (
     compute_subregions_pred_metrics,
     compute_uncertainty_based_fusion,
 )

@@ -9,7 +9,7 @@ import numpy as np
 import torch as th
 from visdom import Visdom
 
-from src.models.utils.utils import mean_flat
+from src.utils.model_utils import mean_flat
 from src.utils.visualization import plot_image_and_mask, plot_mask
 
 from .enums import *

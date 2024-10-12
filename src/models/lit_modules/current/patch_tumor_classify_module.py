@@ -11,7 +11,7 @@ from src.loss.brats_loss import BraTSLoss
 
 from src.loss.patch_tumor_loss import PatchTumorLoss
 from monai.inferers import SlidingWindowInferer
-from src.models.utils.utils import compute_subregions_pred_metrics
+from src.utils.model_utils import compute_subregions_pred_metrics
 import torchmetrics
 
 

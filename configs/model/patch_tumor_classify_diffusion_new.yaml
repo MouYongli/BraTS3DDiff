@@ -1,4 +1,4 @@
-_target_: src.models.patch_tumor_pred_diffusion_module_simpl_new.PatchTumorDiffusionLitModule
+_target_: src.models.lit_modules.current.brats_patch_diffusion_module.BraTSPatchTumorDiffusionLitModule
 optimizer:
   _target_: torch.optim.AdamW
   _partial_: true
@@ -79,7 +79,7 @@ extra_kwargs:
   patch_sizes: ${data.patch_sizes}
   patch_emb_size: 8
   microbatch: -1
-  patch_thresh: 0.60
+  patch_thresh: 0.70
   subregions_names: ["WT", "TC", "ET"]
 
 # compile model for faster training with pytorch 2.0

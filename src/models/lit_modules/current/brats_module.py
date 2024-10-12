@@ -9,7 +9,7 @@ from einops import repeat, rearrange, reduce
 
 from src.loss.brats_loss import BraTSLoss
 from monai.inferers import SlidingWindowInferer
-from src.models.utils.utils import compute_subregions_pred_metrics
+from src.utils.model_utils import compute_subregions_pred_metrics
 
 
 class BraTSLitModule(LightningModule):

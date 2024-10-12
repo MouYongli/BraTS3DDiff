@@ -124,12 +124,12 @@ def get_timestep_quantile_losses(ts, weights, losses, num_timesteps, qt_losses_d
 
 
 def compute_subregions_pred_metrics(
-    y_logits, y_true, C, subregions_names, prefix_key=None, suffix_key=None
+    y_logits, y_true, C, subregions_names, prefix_key=None, suffix_key=None, thresh=0.50
 ):
     # expects non-binarized y_logits
     # C = #subregions
 
-    y_pred = y_logits.sigmoid().gt(0.5)
+    y_pred = y_logits.sigmoid().gt(thresh)
     dice_metric = DiceMetric(
         include_background=False,
         reduction="mean_batch",

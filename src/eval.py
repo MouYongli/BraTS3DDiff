@@ -78,6 +78,12 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         log.info("Logging hyperparameters!")
         log_hyperparameters(object_dict)
 
+    if cfg.get("validate"):
+        log.info("Starting validation!")
+        trainer.validate(
+            model=model, datamodule=datamodule, ckpt_path=cfg.get("ckpt_path")
+        )
+
     if cfg.get("test"):
         log.info("Starting testing!")
         trainer.test(model=model, datamodule=datamodule, ckpt_path=cfg.get("ckpt_path"))

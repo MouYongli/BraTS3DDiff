@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from src.models.diffusion.enums import *
 from src.models.diffusion.gaussian_diffusion import GaussianDiffusion
-from src.models.utils.utils import mean_flat
+from src.utils.model_utils import mean_flat
 
 
 class DenoisingLoss(nn.Module):
