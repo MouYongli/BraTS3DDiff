@@ -8,7 +8,7 @@ defaults:
   - model: patch_tumor_classify_diffusion_new
   - callbacks: default
   - logger: [csv, wandb] # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
-  - trainer: gpu
+  - trainer: cpu
   - paths: default
   - extras: default
   - hydra: default
@@ -31,7 +31,7 @@ defaults:
 # task name, determines output directory path
 task_name: "train"
 
-task_tag: "BraTS23-Patch-Diffusion-512-model-2-no-consistencyloss"
+task_tag: "BraTS23-Patch-Diffusion-512-model-2"
 
 # tags to help you identify your experiments
 # you can overwrite this in experiment configs
