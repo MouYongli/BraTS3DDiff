@@ -4,7 +4,7 @@ batch_size: 8
 val_split: 0.20
 roi_size: [128, 128, 128]
 num_workers: 1
-dim_order: 'w h d'
+dim_order: "w h d"
 num_targets: 3
 num_modalities: 4
 
@@ -22,15 +22,15 @@ subregions:
     labels: ET
 
 im_channels:
-- t2f
-- t1n
-- t1c
-- t2w
+  - t2f
+  - t1n
+  - t1c
+  - t2w
 
 patch_sizes: [16, 32]
 
-sep: '-'
-ext: '.nii.gz'
+sep: "-"
+ext: ".nii.gz"
 
 predict_set: null
 

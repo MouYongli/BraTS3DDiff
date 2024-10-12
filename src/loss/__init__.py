@@ -1,7 +1,3 @@
-from .brats_loss import (
-    BraTSLoss
-)
+from .brats_loss import BraTSLoss
 
-__all__ = [ 
-    "BraTSLoss"
-]
+__all__ = ["BraTSLoss"]

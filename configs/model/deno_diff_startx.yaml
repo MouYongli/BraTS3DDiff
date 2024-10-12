@@ -23,7 +23,6 @@ net:
   dropout: 0.0
   upsample: deconv
 
-
 embed_net:
   _target_: src.models.networks.unet.basic_unet.BasicUNetEncoder
   spatial_dims: 3
@@ -36,11 +35,9 @@ embed_net:
   dropout: 0.0
   upsample: deconv
 
-
 sampler:
   _target_: src.models.diffusion.timestep_sampler.UniformSampler
   diffusion_steps: ${model.diffusion.steps}
-
 
 diffusion:
   _target_: src.models.diffusion.build_diffusion.BuildDiffusion
@@ -51,7 +48,6 @@ diffusion:
   model_var_type: FIXED_LARGE
   loss_type: MSE
 
-
 extra_kwargs:
   microbatch: -1
   ema_rate: "0.9999"
@@ -60,14 +56,12 @@ extra_kwargs:
   pred_type: ddim_sample_uncer_aware
   uncer_step: 4
 
-
 inferer:
   _target_: src.inferer.sliding_window_infer.CustomSlidingWindowInferer
   roi_size: ${data.roi_size}
   viz: False
   sw_batch_size: 2
   overlap: 0.25
-
 
 # compile model for faster training with pytorch 2.0
 compile: false

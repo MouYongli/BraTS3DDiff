@@ -6,31 +6,25 @@ import torch.distributed as dist
 
 
 class ScheduleSampler(ABC):
-    """
-    A distribution over timesteps in the diffusion process, intended to reduce
-    variance of the objective.
+    """A distribution over timesteps in the diffusion process, intended to reduce variance of the
+    objective.
 
-    By default, samplers perform unbiased importance sampling, in which the
-    objective's mean is unchanged.
-    However, subclasses may override sample() to change how the resampled
-    terms are reweighted, allowing for actual changes in the objective.
+    By default, samplers perform unbiased importance sampling, in which the objective's mean is
+    unchanged. However, subclasses may override sample() to change how the resampled terms are
+    reweighted, allowing for actual changes in the objective.
     """
 
     @abstractmethod
     def weights(self):
-        """
-        Get a numpy array of weights, one per diffusion step.
+        """Get a numpy array of weights, one per diffusion step.
 
         The weights needn't be normalized, but must be positive.
         """
 
     def sample(self, batch):
-        """
-        Importance-sample timesteps for a batch.
-        same as sample(self,batch_size, device), but,
-        the signature is changed due to compaitibility
-        with lightning as no T.to(device) calls allowed
-        device is inferred from batch
+        """Importance-sample timesteps for a batch. same as sample(self,batch_size, device), but,
+        the signature is changed due to compaitibility with lightning as no T.to(device) calls
+        allowed device is inferred from batch.
 
         :param batch: The batch for which the
                     timesteps have to be sampled.
@@ -60,13 +54,11 @@ class UniformSampler(ScheduleSampler):
 
 class LossAwareSampler(ScheduleSampler):
     def update_with_local_losses(self, local_ts, local_losses):
-        """
-        Update the reweighting using losses from a model.
+        """Update the reweighting using losses from a model.
 
-        Call this method from each rank with a batch of timesteps and the
-        corresponding losses for each of those timesteps.
-        This method will perform synchronization to make sure all of the ranks
-        maintain the exact same reweighting.
+        Call this method from each rank with a batch of timesteps and the corresponding losses for
+        each of those timesteps. This method will perform synchronization to make sure all of the
+        ranks maintain the exact same reweighting.
 
         :param local_ts: an integer Tensor of timesteps.
         :param local_losses: a 1D Tensor of losses.
@@ -104,16 +96,14 @@ class LossAwareSampler(ScheduleSampler):
 
     @abstractmethod
     def update_with_all_losses(self, ts, losses):
-        """
-        Update the reweighting using losses from a model.
+        """Update the reweighting using losses from a model.
 
-        Sub-classes should override this method to update the reweighting
-        using losses from the model.
+        Sub-classes should override this method to update the reweighting using losses from the
+        model.
 
-        This method directly updates the reweighting without synchronizing
-        between workers. It is called by update_with_local_losses from all
-        ranks with identical arguments. Thus, it should have deterministic
-        behavior to maintain state across workers.
+        This method directly updates the reweighting without synchronizing between workers. It is
+        called by update_with_local_losses from all ranks with identical arguments. Thus, it should
+        have deterministic behavior to maintain state across workers.
 
         :param ts: a list of int timesteps.
         :param losses: a list of float losses, one per timestep.

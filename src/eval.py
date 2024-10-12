@@ -4,8 +4,8 @@ import hydra
 import rootutils
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
-from omegaconf import DictConfig
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
+
 OmegaConf.register_new_resolver("eval", eval)
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
@@ -37,7 +37,6 @@ from src.utils import (
 log = RankedLogger(__name__, rank_zero_only=True)
 
 
-
 @task_wrapper
 def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Evaluates given checkpoint on a datamodule testset.
@@ -63,7 +62,9 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
 
     log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
-    trainer: Trainer = hydra.utils.instantiate(cfg.trainer, logger=logger, callbacks=callbacks)
+    trainer: Trainer = hydra.utils.instantiate(
+        cfg.trainer, logger=logger, callbacks=callbacks
+    )
 
     object_dict = {
         "cfg": cfg,
@@ -83,7 +84,9 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     if cfg.get("predict"):
         log.info("Starting predicting!")
-        trainer.predict(model=model, datamodule=datamodule, ckpt_path=cfg.get("ckpt_path"))
+        trainer.predict(
+            model=model, datamodule=datamodule, ckpt_path=cfg.get("ckpt_path")
+        )
 
     metric_dict = trainer.callback_metrics
 

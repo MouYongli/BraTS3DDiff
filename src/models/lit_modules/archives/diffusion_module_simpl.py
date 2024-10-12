@@ -86,7 +86,6 @@ class DenoisingDiffusionSimplLitModule(LightningModule):
         inferer: SlidingWindowInferer,
         extra_kwargs: dict,
         compile: bool,
-
     ) -> None:
         """Initialize a `DenoisingDiffusionLitModule`.
 
@@ -102,20 +101,19 @@ class DenoisingDiffusionSimplLitModule(LightningModule):
 
         log.info("Creating model and diffusion...")
         self.net: BasicUNetDenoise = net
-        self.embed_net: BasicUNetEncoder  = embed_net
+        self.embed_net: BasicUNetEncoder = embed_net
         self.diffusion: SpacedDiffusion = diffusion.diffusion
         self.sample_diffusion: SpacedDiffusion = diffusion.sample_diffusion
         self.schedule_sampler: ScheduleSampler = sampler
 
         self.inferer: SlidingWindowInferer = inferer
-        
-        #self.train_loss = MeanMetric()
+
+        # self.train_loss = MeanMetric()
         self.criterion = BraTSLoss()
         self.denoising_criterion = DenoisingLoss(diffusion=self.diffusion)
-        #self.dice_metric = DiceMetric(include_background=False, reduction="mean_batch", get_not_nans=True, ignore_empty=False)
+        # self.dice_metric = DiceMetric(include_background=False, reduction="mean_batch", get_not_nans=True, ignore_empty=False)
 
         self.automatic_optimization = False
-
 
     def on_load_checkpoint(self, checkpoint):
         self.ema_params = [
@@ -128,10 +126,17 @@ class DenoisingDiffusionSimplLitModule(LightningModule):
             params_to_state_dict(self.net, params) for params in self.ema_params
         ]
 
-
-    def forward(self, image=None, x_start=None, x_t=None, t=None, denoise_out=None, pred_type=None):
+    def forward(
+        self,
+        image=None,
+        x_start=None,
+        x_t=None,
+        t=None,
+        denoise_out=None,
+        pred_type=None,
+    ):
         """Executes different functions of gaussian diffusion
-            embeddings refer to image embeddings
+        embeddings refer to image embeddings
         """
         if pred_type == "q_sample":
             noise = th.randn_like(x_start)
@@ -144,22 +149,27 @@ class DenoisingDiffusionSimplLitModule(LightningModule):
             return denoise_out
 
         elif pred_type == "pred_xstart":
-            #predict x_start from x_t
+            # predict x_start from x_t
             if self.diffusion.model_mean_type == ModelMeanType.START_X:
                 pred_xstart = denoise_out
             elif self.diffusion.model_mean_type == ModelMeanType.EPSILON:
-                pred_xstart = self.diffusion._predict_xstart_from_eps(x_t=x_t, t=t, eps=denoise_out)
+                pred_xstart = self.diffusion._predict_xstart_from_eps(
+                    x_t=x_t, t=t, eps=denoise_out
+                )
             else:
                 raise NotImplementedError(self.diffusion.model_mean_type)
             return pred_xstart
 
         elif pred_type == "ddim_sample":
             embeddings = self.embed_net(image)
-            B,C,W,H,D = image.shape
-            sample_out = self.sample_diffusion.ddim_sample_loop(self.net, (B, self.hparams.extra_kwargs.number_targets, W, H,D), model_kwargs={"image": image, "embeddings": embeddings})
+            B, C, W, H, D = image.shape
+            sample_out = self.sample_diffusion.ddim_sample_loop(
+                self.net,
+                (B, self.hparams.extra_kwargs.number_targets, W, H, D),
+                model_kwargs={"image": image, "embeddings": embeddings},
+            )
             sample_out = sample_out["sample"]
             return sample_out
-
 
     def on_train_start(self) -> None:
         """Lightning hook that is called when training begins."""
@@ -178,7 +188,6 @@ class DenoisingDiffusionSimplLitModule(LightningModule):
                 ema_params_rate.append(targ)
             ema_params_rates.append(ema_params_rate)
         self.ema_params = ema_params_rates
-
 
     def model_step(self, batch: Tuple[th.Tensor, Any]) -> th.Tensor:
         """Perform a single model step on a batch of data.
@@ -200,31 +209,42 @@ class DenoisingDiffusionSimplLitModule(LightningModule):
 
             t, weights = self.schedule_sampler.sample(x_start)
             x_t, noise = self.forward(x_start=x_start, pred_type="q_sample")
-            denoise_out = self.forward(x_t=x_t, t=t, image=image_, pred_type="denoise_out")
-            losses = self.denoising_criterion(denoise_out=denoise_out, x_start=x_start, x_t=x_t, t=t, noise=noise)
-            #denoising loss
-            deno_loss = (losses['loss'] * weights).mean()
+            denoise_out = self.forward(
+                x_t=x_t, t=t, image=image_, pred_type="denoise_out"
+            )
+            losses = self.denoising_criterion(
+                denoise_out=denoise_out, x_start=x_start, x_t=x_t, t=t, noise=noise
+            )
+            # denoising loss
+            deno_loss = (losses["loss"] * weights).mean()
 
             # compute quantile losses for timesteps
             qt_losses_dict = get_timestep_quantile_losses(
                 t, weights, losses, self.diffusion.num_timesteps, qt_losses_dict
             )
-            #update loss history (for importance sampling objective)
+            # update loss history (for importance sampling objective)
             if isinstance(self.schedule_sampler, LossAwareSampler):
-                self.schedule_sampler.update_with_local_losses(t, losses['loss'].detach())
+                self.schedule_sampler.update_with_local_losses(
+                    t, losses["loss"].detach()
+                )
 
             ##Compute losses b/w pred_xstart and mask_
-            pred_xstart = self.forward(x_t=x_t,step=t,model_out=denoise_out, pred_type="pred_xstart") * foreground_
-            seg_losses = self.criterion(pred_xstart,mask_)
-            loss_dice = seg_losses['dice_loss']
-            loss_bce = seg_losses['bce_loss']
-            loss_mse = seg_losses['mse_loss']
+            pred_xstart = (
+                self.forward(
+                    x_t=x_t, step=t, model_out=denoise_out, pred_type="pred_xstart"
+                )
+                * foreground_
+            )
+            seg_losses = self.criterion(pred_xstart, mask_)
+            loss_dice = seg_losses["dice_loss"]
+            loss_bce = seg_losses["bce_loss"]
+            loss_mse = seg_losses["mse_loss"]
 
             loss = deno_loss + loss_dice + loss_bce + loss_mse
             self.manual_backward(loss)
-            all_losses = seg_losses.update({'deno_loss':deno_loss})
-            
-            self._log_scores(all_losses,on_step=True,prog_bar=True)
+            all_losses = seg_losses.update({"deno_loss": deno_loss})
+
+            self._log_scores(all_losses, on_step=True, prog_bar=True)
 
         qt_losses_dict = aggregate_timestep_quantile_losses(qt_losses_dict)
         self.log_dict(qt_losses_dict, on_step=True, prog_bar=True)
@@ -249,7 +269,7 @@ class DenoisingDiffusionSimplLitModule(LightningModule):
             update_ema(params, list(self.net.parameters()), rate=rate)
 
         # update and log metrics
-        #self.train_loss(loss)
+        # self.train_loss(loss)
         self.log(
             "train/loss", self.train_loss, on_step=True, on_epoch=False, prog_bar=True
         )
@@ -260,40 +280,47 @@ class DenoisingDiffusionSimplLitModule(LightningModule):
         # return loss or backpropagation will fail
         return loss
 
-
     def on_train_batch_end(
         self, outputs: th.Tensor, batch: Any, batch_idx: int
     ) -> None:
         pass
 
-
     def validation_step(self, batch):
-        #image: Nx4xWxHxD (4 Image Channels)
-        #mask: NxCxWxHxD  (C= Tumor subregions Channels)
+        # image: Nx4xWxHxD (4 Image Channels)
+        # mask: NxCxWxHxD  (C= Tumor subregions Channels)
         image, mask, foreground = batch["image"], batch["mask"], batch["foreground"]
-        N,C,W,H,D = mask.shape
+        N, C, W, H, D = mask.shape
         subregions_names = self.trainer.datamodule.subregions_names
         assert len(subregions_names) == C
 
-        #Evaluate on the entire image using sliding window inference
-        logits = self.inferer(inputs=image,network=self.forward,pred_type="ddim_sample") * foreground
+        # Evaluate on the entire image using sliding window inference
+        logits = (
+            self.inferer(inputs=image, network=self.forward, pred_type="ddim_sample")
+            * foreground
+        )
 
-        #compute loss on raw logits
+        # compute loss on raw logits
         seg_losses = self.criterion(logits, mask)
-        seg_losses['loss'] = seg_losses["dice_loss"] + seg_losses["bce_loss"] + seg_losses["mse_loss"]
-        self._log_scores(seg_losses,prefix='val')
+        seg_losses["loss"] = (
+            seg_losses["dice_loss"] + seg_losses["bce_loss"] + seg_losses["mse_loss"]
+        )
+        self._log_scores(seg_losses, prefix="val")
 
-        #compute scores on binary logits for every subregion
+        # compute scores on binary logits for every subregion
         logits = logits.sigmoid().gt(0.5)
-        pred_scores = compute_subregions_pred_metrics(logits,mask,C,subregions_names)
-        self._log_scores(pred_scores,prefix='val',on_epoch=True,prog_bar=True)
+        pred_scores = compute_subregions_pred_metrics(logits, mask, C, subregions_names)
+        self._log_scores(pred_scores, prefix="val", on_epoch=True, prog_bar=True)
 
-
-
-    def _log_scores(self,scores:dict,prefix='train',on_epoch=False,on_step=False,prog_bar=False):
-        scores = {f"{prefix}/{k}":v for k,v in scores.items()}
-        self.log_dict(scores,on_epoch=on_epoch,on_step=on_step,prog_bar=prog_bar)
-
+    def _log_scores(
+        self,
+        scores: dict,
+        prefix="train",
+        on_epoch=False,
+        on_step=False,
+        prog_bar=False,
+    ):
+        scores = {f"{prefix}/{k}": v for k, v in scores.items()}
+        self.log_dict(scores, on_epoch=on_epoch, on_step=on_step, prog_bar=prog_bar)
 
     def setup(self, stage: str) -> None:
         """Lightning hook that is called at the beginning of fit (train + validate), validate,
@@ -320,8 +347,9 @@ class DenoisingDiffusionSimplLitModule(LightningModule):
             ]
 
             microbatch = self.hparams.extra_kwargs.microbatch
-            self.microbatch = microbatch if microbatch > 0 else self.trainer.datamodule.batch_size
-
+            self.microbatch = (
+                microbatch if microbatch > 0 else self.trainer.datamodule.batch_size
+            )
 
     def configure_optimizers(self) -> Dict[str, Any]:
         """Choose what optimizers and learning-rate schedulers to use in your optimization.

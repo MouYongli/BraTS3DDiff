@@ -5,11 +5,11 @@
 defaults:
   - _self_
   - data: brats23_patch_tumor_classify_diffusion
-  - model: swinunetr_patch_tumor_classify_diffusion
+  - model: patch_tumor_classify_diffusion_new
   - synapse: syn_acc_rsanyal419_gmail
   - callbacks: default
   ## set logger here or use command line (e.g. `python train.py logger=tensorboard`)
-  - logger: [csv] 
+  - logger: [csv]
   #- logger: null
   - trainer: gpu
   - paths: default
@@ -31,15 +31,14 @@ defaults:
   - debug: null
 
 # task name, determines output directory path
-task_name: "predict"
+task_name: "test"
 
-task_tag: "BraTS23-SwinUnetR-512-patch_tumor_classify_diffusion_roi_128_lr=0.001"
+task_tag: "BraTS23-Patch-Diffusion-512-model-2"
 
 # tags to help you identify your experiments
 # you can overwrite this in experiment configs
 # overwrite from command line with `python train.py tags="[first_tag, second_tag]"`
 tags: ["dev"]
-
 
 time: ${now:%Y-%m-%d}_${now:%H-%M-%S}
 
@@ -48,17 +47,16 @@ train: False
 
 # evaluate on test set, using best model weights achieved during training
 # lightning chooses best weights based on the metric specified in checkpoint callback
-test: False
+test: True
 
-predict: True
+predict: False
 
 # simply provide checkpoint path to resume training
 #ckpt_path: '${paths.log_dir}/BraTS23-nnUNET_baseline_0/train/runs/2024-08-08_13-23-09/csv/version_0/checkpoints/epoch=82-step=10292.ckpt'
 ##ckpt_path: '${paths.log_dir}/BraTS23-SwinUNETR_baseline_0/train/runs/2024-08-08_17-26-44/csv/version_0/checkpoints/epoch=70-step=17608.ckpt'
 #ckpt_path: '${paths.log_dir}/BraTS23-DiffUNet-roi_96-meantype_xstart-with_deno_loss-no_mse_loss/train/runs/2024-08-15_16-05-12/csv/version_0/checkpoints/epoch=299-step=37200.ckpt'
 #ckpt_path: '${paths.log_dir}/BraTS23-DiffUNet-roi_96-meantype_xstart-with_deno_loss/train/runs/2024-08-14_18-28-27/csv/version_0/checkpoints/epoch=299-step=37200.ckpt'
-ckpt_path: /home/sanyal/Projects/BraTS3DDiff/logs/bratseg_logs/patch_diffusion/BraTS23-SwinUnetR-512-patch_tumor_classify_diffusion_roi_128_lr=0.001/train/runs/2024-09-27_18-27-30/csv/version_0/checkpoints/epoch=230-step=114576.ckpt
-
+#ckpt_path: /home/sanyal/Projects/BraTS3DDiff/logs/bratseg_logs/patch_diffusion/BraTS23-SwinUnetR-512-patch_tumor_classify_diffusion_roi_128_lr=0.001/train/runs/2024-09-27_18-27-30/csv/version_0/checkpoints/epoch=230-step=114576.ckpt
+ckpt_path: /home/sanyal/Projects/BraTS3DDiff/logs/bratseg_logs/patch_diffusion/BraTS23-Patch-Diffusion-512-model-2/train/runs/2024-10-05_02-52-29/csv/version_0/checkpoints/epoch=216-step=107632.ckpt
 # seed for random number generators in pytorch, numpy and python.random
 seed: 123
-

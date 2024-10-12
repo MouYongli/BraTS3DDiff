@@ -1,4 +1,4 @@
-_target_: src.models.patch_tumor_pred_diffusion_module_simpl_new_no_consistencyloss.PatchTumorDiffusionLitModule
+_target_: src.models.patch_tumor_pred_diffusion_module_simpl_new.PatchTumorDiffusionLitModule
 optimizer:
   _target_: torch.optim.AdamW
   _partial_: true
@@ -30,14 +30,14 @@ patchify_net:
   depths: [2, 4, 2, 2]
   num_heads: [3, 6, 12, 24]
   feature_size: 24
-  norm_name: 'instance'
+  norm_name: "instance"
   drop_rate: 0.0
   attn_drop_rate: 0.0
   dropout_path_rate: 0.0
   normalize: True
   use_checkpoint: False
   spatial_dims: 3
-  downsample: 'merging'
+  downsample: "merging"
   use_v2: False
 
 patch_emb_net:
@@ -55,7 +55,6 @@ patch_emb_net:
 sampler:
   _target_: src.models.diffusion.timestep_sampler.UniformSampler
   diffusion_steps: ${model.diffusion.steps}
-
 
 diffusion:
   _target_: src.models.diffusion.build_diffusion.BuildDiffusion
@@ -80,9 +79,8 @@ extra_kwargs:
   patch_sizes: ${data.patch_sizes}
   patch_emb_size: 8
   microbatch: -1
-  patch_thresh: 0.70
-  subregions_names: ['WT', 'TC', 'ET']
-
+  patch_thresh: 0.60
+  subregions_names: ["WT", "TC", "ET"]
 
 # compile model for faster training with pytorch 2.0
 compile: false

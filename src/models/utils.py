@@ -1,7 +1,8 @@
 from operator import itemgetter
 
-import torch
 import torch.distributed as dist
+import torch
+
 from monai.metrics import DiceMetric
 
 

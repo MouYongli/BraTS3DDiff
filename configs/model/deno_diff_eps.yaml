@@ -23,7 +23,6 @@ net:
   dropout: 0.0
   upsample: deconv
 
-
 embed_net:
   _target_: src.models.networks.unet.basic_unet.BasicUNetEncoder
   spatial_dims: 3
@@ -36,11 +35,9 @@ embed_net:
   dropout: 0.0
   upsample: deconv
 
-
 sampler:
   _target_: src.models.diffusion.timestep_sampler.UniformSampler
   diffusion_steps: ${model.diffusion.steps}
-
 
 diffusion:
   _target_: src.models.diffusion.build_diffusion.BuildDiffusion
@@ -50,7 +47,6 @@ diffusion:
   model_mean_type: EPSILON
   model_var_type: FIXED_LARGE
   loss_type: MSE
-
 
 extra_kwargs:
   number_targets: ${data.num_targets}

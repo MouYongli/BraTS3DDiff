@@ -1,6 +1,4 @@
-"""
-Various utilities for neural networks.
-"""
+"""Various utilities for neural networks."""
 
 import math
 
@@ -20,9 +18,7 @@ class GroupNorm32(nn.GroupNorm):
 
 
 def conv_nd(dims, *args, **kwargs):
-    """
-    Create a 1D, 2D, or 3D convolution module.
-    """
+    """Create a 1D, 2D, or 3D convolution module."""
     if dims == 1:
         return nn.Conv1d(*args, **kwargs)
     elif dims == 2:
@@ -33,16 +29,12 @@ def conv_nd(dims, *args, **kwargs):
 
 
 def linear(*args, **kwargs):
-    """
-    Create a linear module.
-    """
+    """Create a linear module."""
     return nn.Linear(*args, **kwargs)
 
 
 def avg_pool_nd(dims, *args, **kwargs):
-    """
-    Create a 1D, 2D, or 3D average pooling module.
-    """
+    """Create a 1D, 2D, or 3D average pooling module."""
     if dims == 1:
         return nn.AvgPool1d(*args, **kwargs)
     elif dims == 2:
@@ -53,8 +45,7 @@ def avg_pool_nd(dims, *args, **kwargs):
 
 
 def normalization(channels):
-    """
-    Make a standard normalization layer.
+    """Make a standard normalization layer.
 
     :param channels: number of input channels.
     :return: an nn.Module for normalization.
@@ -63,11 +54,9 @@ def normalization(channels):
 
 
 def timestep_embedding(timesteps, dim, max_period=10000):
-    """
-    Create sinusoidal timestep embeddings.
+    """Create sinusoidal timestep embeddings.
 
-    :param timesteps: a 1-D Tensor of N indices, one per batch element.
-                      These may be fractional.
+    :param timesteps: a 1-D Tensor of N indices, one per batch element. These may be fractional.
     :param dim: the dimension of the output.
     :param max_period: controls the minimum frequency of the embeddings.
     :return: an [N x dim] Tensor of positional embeddings.
@@ -84,9 +73,8 @@ def timestep_embedding(timesteps, dim, max_period=10000):
 
 
 def checkpoint(func, inputs, params, flag):
-    """
-    Evaluate a function without caching intermediate activations, allowing for
-    reduced memory at the expense of extra compute in the backward pass.
+    """Evaluate a function without caching intermediate activations, allowing for reduced memory at
+    the expense of extra compute in the backward pass.
 
     :param func: the function to evaluate.
     :param inputs: the argument sequence to pass to `func`.

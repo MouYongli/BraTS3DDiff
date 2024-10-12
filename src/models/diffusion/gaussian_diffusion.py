@@ -4,18 +4,21 @@ https://github.com/hojonathanho/diffusion/blob/1e0dceb3b3495bbe19116a5e1b3596cd0
 
 Docstrings have been added, as well as DDIM sampling and a new collection of beta schedules.
 """
+
 import numpy as np
 import torch as th
+from visdom import Visdom
 
 from src.models.utils.utils import mean_flat
+from src.utils.visualization import plot_image_and_mask, plot_mask
 
 from .enums import *
 from .losses import discretized_gaussian_log_likelihood, normal_kl
-from src.utils.visualization import plot_image_and_mask, plot_mask
 
-from visdom import Visdom
 vis = Visdom(port=8097)
 import time
+
+
 class GaussianDiffusion:
     """Utilities for training and sampling diffusion models.
 
@@ -238,8 +241,6 @@ class GaussianDiffusion:
             "model_output": model_output,
         }
 
-
-
     def _predict_xstart_from_eps(self, x_t, t, eps):
         assert x_t.shape == eps.shape
         return (
@@ -361,8 +362,7 @@ class GaussianDiffusion:
         device=None,
         progress=False,
     ):
-        """
-        Generate samples from the model.
+        """Generate samples from the model.
 
         :param model: the model module.
         :param shape: the shape of the samples, (N, C, H, W).
@@ -407,13 +407,11 @@ class GaussianDiffusion:
         device=None,
         progress=False,
     ):
-        """
-        Generate samples from the model and yield intermediate samples from
-        each timestep of diffusion.
+        """Generate samples from the model and yield intermediate samples from each timestep of
+        diffusion.
 
-        Arguments are the same as p_sample_loop().
-        Returns a generator over dicts, where each dict is the return value of
-        p_sample().
+        Arguments are the same as p_sample_loop(). Returns a generator over dicts, where each dict
+        is the return value of p_sample().
         """
         if device is None:
             device = next(model.parameters()).device
@@ -492,8 +490,11 @@ class GaussianDiffusion:
             (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))
         )  # no noise when t == 0
         sample = mean_pred + nonzero_mask * sigma * noise
-        return {"sample": sample, "pred_xstart": out["pred_xstart"],  "model_output": out["model_output"]}
-
+        return {
+            "sample": sample,
+            "pred_xstart": out["pred_xstart"],
+            "model_output": out["model_output"],
+        }
 
     def ddim_reverse_sample(
         self,
@@ -531,7 +532,6 @@ class GaussianDiffusion:
 
         return {"sample": mean_pred, "pred_xstart": out["pred_xstart"]}
 
-
     def ddim_sample_loop(
         self,
         model,
@@ -546,8 +546,7 @@ class GaussianDiffusion:
         progress=False,
         eta=0.0,
     ):
-        """
-        Generate samples from the model using DDIM.
+        """Generate samples from the model using DDIM.
 
         Same usage as p_sample_loop().
         """
@@ -571,16 +570,15 @@ class GaussianDiffusion:
             eta=eta,
         ):
             final = sample
-            intermediate_samples.append(sample['sample'])
+            intermediate_samples.append(sample["sample"])
             all_samples.append(sample["pred_xstart"])
             all_model_output.append(sample["model_output"])
         final["intermediate_samples"] = intermediate_samples
         final["all_samples"] = all_samples
         final["all_model_outputs"] = all_model_output
 
-        #time.sleep(1)
+        # time.sleep(1)
         return final
-
 
     def ddim_sample_loop_progressive(
         self,
@@ -596,9 +594,8 @@ class GaussianDiffusion:
         progress=False,
         eta=0.0,
     ):
-        """
-        Use DDIM to sample from the model and yield intermediate samples from
-        each timestep of DDIM.
+        """Use DDIM to sample from the model and yield intermediate samples from each timestep of
+        DDIM.
 
         Same usage as p_sample_loop_progressive().
         """
@@ -614,19 +611,22 @@ class GaussianDiffusion:
         if progress:
             # Lazy import so that we don't depend on tqdm.
             from tqdm.auto import tqdm
+
             indices = tqdm(indices)
 
         for i in indices:
-            #intermediate sample visualization
+            # intermediate sample visualization
             if viz_kwargs is not None:
-                if viz_kwargs.get('uncer_step') is not None:
-                    viz_kwargs['title'] = f"Mask sample at uncer_step={viz_kwargs['uncer_step']}, t={i}"
-                    viz_kwargs['win'] = f"sampling_masks_{viz_kwargs['uncer_step']}"
+                if viz_kwargs.get("uncer_step") is not None:
+                    viz_kwargs["title"] = (
+                        f"Mask sample at uncer_step={viz_kwargs['uncer_step']}, t={i}"
+                    )
+                    viz_kwargs["win"] = f"sampling_masks_{viz_kwargs['uncer_step']}"
                 else:
-                    viz_kwargs['title'] = f"Mask sample at t={i}"
-                    viz_kwargs['win'] = 'sampling_masks'
+                    viz_kwargs["title"] = f"Mask sample at t={i}"
+                    viz_kwargs["win"] = "sampling_masks"
 
-                viz_kwargs['vis'] = vis
+                viz_kwargs["vis"] = vis
                 plot_mask(img[0].cpu(), **viz_kwargs)
 
             t = th.tensor([i] * shape[0], device=device)
@@ -643,7 +643,6 @@ class GaussianDiffusion:
                 )
                 yield out
                 img = out["sample"]
-
 
     def _vb_terms_bpd(
         self, model, x_start, x_t, t, clip_denoised=True, model_kwargs=None
@@ -679,9 +678,10 @@ class GaussianDiffusion:
         output = th.where((t == 0), decoder_nll, kl)
         return {"output": output, "pred_xstart": out["pred_xstart"]}
 
-    def training_losses(self, model, x_start, t, model_kwargs=None, x_t=None, noise=None):
-        """
-        Compute training losses for a single timestep.
+    def training_losses(
+        self, model, x_start, t, model_kwargs=None, x_t=None, noise=None
+    ):
+        """Compute training losses for a single timestep.
 
         :param model: the model to evaluate loss on.
         :param x_start: the [N x C x ...] tensor of inputs.
@@ -755,8 +755,7 @@ class GaussianDiffusion:
 
         return terms
 
-
-    def predict_xstart(self, x_t, t, model_output=None,model=None,model_kwargs=None):
+    def predict_xstart(self, x_t, t, model_output=None, model=None, model_kwargs=None):
         B, C = x_t.shape[:2]
         assert t.shape == (B,)
         if not model_output:
@@ -764,20 +763,28 @@ class GaussianDiffusion:
             model_output = model(x_t, self._scale_timesteps(t), **model_kwargs)
 
         if self.model_mean_type == ModelMeanType.PREVIOUS_X:
-            pred_xstart = self._predict_xstart_from_xprev(x_t=x_t, t=t, xprev=model_output)
+            pred_xstart = self._predict_xstart_from_xprev(
+                x_t=x_t, t=t, xprev=model_output
+            )
         elif self.model_mean_type in [ModelMeanType.START_X, ModelMeanType.EPSILON]:
             if self.model_mean_type == ModelMeanType.START_X:
                 pred_xstart = model_output
             else:
-                pred_xstart = self._predict_xstart_from_eps(x_t=x_t, t=t, eps=model_output)
+                pred_xstart = self._predict_xstart_from_eps(
+                    x_t=x_t, t=t, eps=model_output
+                )
         else:
             raise NotImplementedError(self.model_mean_type)
         return pred_xstart
 
-
-    def simple_mse_loss(self, x_start, x_t, t, noise, model_output=None,model=None,model_kwargs=None):
+    def simple_mse_loss(
+        self, x_start, x_t, t, noise, model_output=None, model=None, model_kwargs=None
+    ):
         assert self.loss_type == LossType.MSE
-        assert self.model_var_type in [ModelVarType.FIXED_LARGE, ModelVarType.FIXED_SMALL]
+        assert self.model_var_type in [
+            ModelVarType.FIXED_LARGE,
+            ModelVarType.FIXED_SMALL,
+        ]
 
         if not model_output:
             model_kwargs = model_kwargs if model_kwargs is not None else {}

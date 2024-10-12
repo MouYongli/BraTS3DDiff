@@ -2,23 +2,34 @@ from torch import nn
 
 from .residual import BasicBlockD
 
-class InitWeights_He(object):
+
+class InitWeights_He:
     def __init__(self, neg_slope: float = 1e-2):
         self.neg_slope = neg_slope
 
     def __call__(self, module):
-        if isinstance(module, nn.Conv3d) or isinstance(module, nn.Conv2d) or isinstance(module, nn.ConvTranspose2d) or isinstance(module, nn.ConvTranspose3d):
+        if (
+            isinstance(module, nn.Conv3d)
+            or isinstance(module, nn.Conv2d)
+            or isinstance(module, nn.ConvTranspose2d)
+            or isinstance(module, nn.ConvTranspose3d)
+        ):
             module.weight = nn.init.kaiming_normal_(module.weight, a=self.neg_slope)
             if module.bias is not None:
                 module.bias = nn.init.constant_(module.bias, 0)
 
 
-class InitWeights_XavierUniform(object):
+class InitWeights_XavierUniform:
     def __init__(self, gain: int = 1):
         self.gain = gain
 
     def __call__(self, module):
-        if isinstance(module, nn.Conv3d) or isinstance(module, nn.Conv2d) or isinstance(module, nn.ConvTranspose2d) or isinstance(module, nn.ConvTranspose3d):
+        if (
+            isinstance(module, nn.Conv3d)
+            or isinstance(module, nn.Conv2d)
+            or isinstance(module, nn.ConvTranspose2d)
+            or isinstance(module, nn.ConvTranspose3d)
+        ):
             module.weight = nn.init.xavier_uniform_(module.weight, self.gain)
             if module.bias is not None:
                 module.bias = nn.init.constant_(module.bias, 0)

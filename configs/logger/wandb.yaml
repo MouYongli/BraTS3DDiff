@@ -5,4 +5,3 @@ wandb:
   save_dir: ${paths.output_dir}
   name: ${now:%Y-%m-%d}_${now:%H-%M-%S}_${task_name}_run_${task_tag}
   project: BraTS3DDiff
-

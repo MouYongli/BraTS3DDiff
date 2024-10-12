@@ -1,6 +1,6 @@
-#save_predicted_masks:
-#  _target_: src.callbacks.predicted_masks_save_callback.MultipleMasksSaveCallBack
-#  save_dir: ${hydra:runtime.output_dir}/seg_masks
+save_predicted_masks:
+  _target_: src.callbacks.predicted_masks_save_callback.MultipleMasksSaveCallBack
+  save_dir: ${hydra:runtime.output_dir}/seg_masks
 
 synapse_submission:
   _target_: src.callbacks.synapse_submission_callback.SynapseSubmissionCallBack
@@ -8,7 +8,7 @@ synapse_submission:
   syn_proj_id: ${synapse.syn_proj_id}
   pred_labels_path: ${hydra:runtime.output_dir}/seg_masks/res=16
   eval_images_path: ${data.data_dir}/test
-  syn_eval_id: '9615339'
+  syn_eval_id: "9615339"
   zip_file_name: ${task_tag}_${now:%Y-%m-%d}_${now:%H-%M-%S}
   name: ${.zip_file_name}
 
