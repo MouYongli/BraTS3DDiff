@@ -1,0 +1,7 @@
+# https://wandb.ai
+
+wandb:
+  _target_: lightning.pytorch.loggers.WandbLogger
+  save_dir: ${paths.output_dir}
+  name: ${now:%Y-%m-%d}_${now:%H-%M-%S}_${task_name}_run_${task_tag}
+  project: BraTS3DDiff

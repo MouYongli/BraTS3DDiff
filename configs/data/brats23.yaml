@@ -1,0 +1,33 @@
+_target_: src.datasets.brats_datamodule.BraTSDataModule
+data_dir: ${paths.data_dir}/BraTS-Data/BraTS2023-GLI
+batch_size: 4
+val_split: 0.20
+roi_size: [128, 128, 128]
+num_workers: 1
+dim_order: "w h d"
+num_targets: 3
+num_modalities: 4
+
+labels:
+  NCR: 1
+  ED: 2
+  ET: 3
+
+subregions:
+  - region: WT
+    labels: NCR+ED+ET
+  - region: TC
+    labels: NCR+ET
+  - region: ET
+    labels: ET
+
+im_channels:
+  - t2f
+  - t1n
+  - t1c
+  - t2w
+
+sep: "-"
+ext: ".nii.gz"
+
+predict_set: test
