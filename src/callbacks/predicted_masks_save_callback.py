@@ -5,7 +5,6 @@ import torch
 from einops import rearrange, reduce, repeat
 from lightning.pytorch.callbacks import Callback
 
-
 class PredictedMasksSaveCallBack(Callback):
     def __init__(self, save_dir):
         self.save_dir = save_dir
@@ -49,8 +48,8 @@ class PredictedMasksSaveCallBack(Callback):
         ni_data = nibabel.load(im_path)
         affine, header = ni_data.affine, ni_data.header
         return affine, header
-
-    def on_predict_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+    
+    def save_masks(self, trainer, outputs, split="test"):
         labels = trainer.datamodule.hparams.labels
         dim_order = trainer.datamodule.hparams.dim_order
         data_dir = trainer.datamodule.hparams.data_dir
@@ -65,10 +64,19 @@ class PredictedMasksSaveCallBack(Callback):
             pred_mask = pred_masks[i].cpu().numpy()
             file_id = file_ids[i]
             affine, header = self.load_affine_and_header(
-                data_dir, file_id, im_channels, sep, ext
+                data_dir, file_id, im_channels, sep, ext, split=split
             )
             pred_mask = nibabel.nifti1.Nifti1Image(pred_mask, affine, header=header)
             nibabel.save(pred_mask, os.path.join(self.save_dir, file_id + ".nii.gz"))
+
+    def on_test_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        self.save_masks(trainer, outputs, split="val")
+
+    def on_predict_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        self.save_masks(trainer, outputs, split="test")
+
+    def on_test_start(self, trainer, pl_module):
+        os.makedirs(self.save_dir, exist_ok=True)
 
     def on_predict_start(self, trainer, pl_module):
         os.makedirs(self.save_dir, exist_ok=True)
@@ -78,7 +86,7 @@ class MultipleMasksSaveCallBack(PredictedMasksSaveCallBack):
     def __init__(self, save_dir):
         super().__init__(save_dir)
 
-    def on_test_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+    def save_masks(self, trainer, outputs, split="test"):
         labels = trainer.datamodule.hparams.labels
         dim_order = trainer.datamodule.hparams.dim_order
         data_dir = trainer.datamodule.hparams.data_dir
@@ -100,40 +108,9 @@ class MultipleMasksSaveCallBack(PredictedMasksSaveCallBack):
                 pred_mask = pred_masks[i].cpu().numpy()
                 file_id = file_ids[i]
                 affine, header = self.load_affine_and_header(
-                    data_dir, file_id, im_channels, sep, ext, split="val"
+                    data_dir, file_id, im_channels, sep, ext, split=split
                 )
                 pred_mask = nibabel.nifti1.Nifti1Image(pred_mask, affine, header=header)
                 nibabel.save(pred_mask, os.path.join(out_dir, file_id + ".nii.gz"))
+                
 
-    def on_test_start(self, trainer, pl_module):
-        os.makedirs(self.save_dir, exist_ok=True)
-
-    def on_predict_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
-        labels = trainer.datamodule.hparams.labels
-        dim_order = trainer.datamodule.hparams.dim_order
-        data_dir = trainer.datamodule.hparams.data_dir
-        im_channels = trainer.datamodule.hparams.im_channels
-        sep = trainer.datamodule.hparams.sep
-        ext = trainer.datamodule.hparams.ext
-
-        pred_masks_dict, file_ids = outputs
-
-        for key in pred_masks_dict.keys():
-            out_dir = os.path.join(self.save_dir, key)
-            os.makedirs(out_dir, exist_ok=True)
-
-            pred_masks = self.mask_regions_to_labels(
-                data_dir, pred_masks_dict[key], labels, dim_order
-            )
-            N, W, H, D = pred_masks.shape
-            for i in range(N):
-                pred_mask = pred_masks[i].cpu().numpy()
-                file_id = file_ids[i]
-                affine, header = self.load_affine_and_header(
-                    data_dir, file_id, im_channels, sep, ext, split="test"
-                )
-                pred_mask = nibabel.nifti1.Nifti1Image(pred_mask, affine, header=header)
-                nibabel.save(pred_mask, os.path.join(out_dir, file_id + ".nii.gz"))
-
-    def on_predict_start(self, trainer, pl_module):
-        os.makedirs(self.save_dir, exist_ok=True)

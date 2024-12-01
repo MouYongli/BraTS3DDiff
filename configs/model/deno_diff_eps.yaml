@@ -1,4 +1,4 @@
-_target_: src.models.diffusion_module_simpl_no_microbatch.DenoisingDiffusionSimplNMbLitModule
+_target_: src.models.lit_modules.current.brats_diffusion_module.BraTSDenoisingDiffusionLitModule
 
 optimizer:
   _target_: torch.optim.AdamW

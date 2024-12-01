@@ -79,7 +79,7 @@ extra_kwargs:
   patch_sizes: ${data.patch_sizes}
   patch_emb_size: 8
   microbatch: -1
-  patch_thresh: 0.70
+  patch_thresh: 0.0
   subregions_names: ["WT", "TC", "ET"]
 
 # compile model for faster training with pytorch 2.0

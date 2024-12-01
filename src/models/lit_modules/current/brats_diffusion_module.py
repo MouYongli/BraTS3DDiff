@@ -39,12 +39,12 @@ from src.utils.visualization import plot_mask
 
 from visdom import Visdom
 
-vis = Visdom(port=8097)
+#vis = Visdom(port=8097)
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
 
-class DenoisingDiffusionSimplNMbLitModule(LightningModule):
+class BraTSDenoisingDiffusionLitModule(LightningModule):
     """Example of a `LightningModule` for denosiing diffuiosn A `LightningModule` implements 8 key
     methods:
 
@@ -347,10 +347,18 @@ class DenoisingDiffusionSimplNMbLitModule(LightningModule):
         im_channels = self.trainer.datamodule.im_channels
         assert len(subregions_names) == C
 
-        logits = (
-            self.forward(image, pred_type=self.hparams.extra_kwargs.pred_type)
-            * foreground
-        )
+        if mode == "val":
+            pred_mask = (
+                self.forward(image=image, pred_type=self.hparams.extra_kwargs.pred_type)
+                * foreground
+            )
+        elif mode == "test":
+            pred_mask = (
+                self.inferer(inputs=image, network=self.forward, pred_type=self.hparams.extra_kwargs.pred_type)
+                * foreground
+            )
+        else:
+            raise ValueError
 
         """
         #Evaluate on the entire image using sliding window inference
@@ -362,7 +370,7 @@ class DenoisingDiffusionSimplNMbLitModule(LightningModule):
         """
 
         # compute loss on raw logits
-        seg_losses = self.criterion(logits, mask)
+        seg_losses = self.criterion(pred_mask, mask)
         seg_losses["loss"] = seg_losses["dice_loss"] + seg_losses["bce_loss"]
         self._log_scores(seg_losses, prefix=mode, on_epoch=True, prog_bar=True)
         self.log(
@@ -374,29 +382,31 @@ class DenoisingDiffusionSimplNMbLitModule(LightningModule):
         )
 
         # compute scores on binary logits for every subregion
-        logits = logits.sigmoid().gt(0.5)
         pred_scores, _ = compute_subregions_pred_metrics(
-            logits, mask, C, subregions_names
+            pred_mask, mask, C, subregions_names
         )
         self._log_scores(pred_scores, prefix=mode, on_epoch=True, prog_bar=True)
-        return logits, pred_scores
+        pred_mask = pred_mask.sigmoid().gt(0.5)
+        return pred_mask, pred_scores
         # pred_scores = {f"val/{k}":v for k,v in pred_scores.items()}
 
     def validation_step(self, batch):
         return self.val_test_step(batch, mode="val")
 
-    def test_step(self, batch: Any, batch_idx: int):
-        return self.val_test_step(batch, mode="test")
+    def test_step(self, batch: Any):
+        data, file_id = batch
+        pred_mask, _ = self.val_test_step(data, mode="test")
+        return pred_mask, file_id
 
     def predict_step(self, batch):
-        datas, file_ids = batch
-        images, foregrounds = datas["image"], datas["foreground"]
-        logits = (
-            self.inferer(inputs=images, network=self.forward, pred_type="ddim_sample")
+        data, file_id = batch
+        images, foregrounds = data["image"], data["foreground"]
+        pred_mask = (
+            self.inferer(inputs=images, network=self.forward, pred_type=self.hparams.extra_kwargs.pred_type)
             * foregrounds
         )
-        logits = logits.sigmoid().gt(0.5)
-        return logits, file_ids
+        pred_mask = pred_mask.sigmoid().gt(0.5)
+        return pred_mask, file_id
 
     def _log_scores(
         self,
@@ -446,4 +456,4 @@ class DenoisingDiffusionSimplNMbLitModule(LightningModule):
 
 
 if __name__ == "__main__":
-    _ = DenoisingDiffusionSimplNMbLitModule(None, None, None, None)
+    _ = BraTSDenoisingDiffusionLitModule(None, None, None, None)

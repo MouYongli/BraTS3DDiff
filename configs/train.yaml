@@ -4,15 +4,14 @@
 # order of defaults determines the order in which configs override each other
 defaults:
   - _self_
-  - data: brats23_patch_tumor_classify_diffusion
-  - model: patch_tumor_classify_diffusion_new
+  - data: brats23_new
+  - model: deno_diff_startx
   - callbacks: default
-  - logger: [csv, wandb] # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
-  - trainer: cpu
+  - logger: [csv] # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
+  - trainer: gpu
   - paths: default
   - extras: default
   - hydra: default
-  - synapse: syn_acc_rsanyal419_gmail
 
   # experiment configs allow for version control of specific hyperparameters
   # e.g. best hyperparameters for given model and datamodule
@@ -31,7 +30,7 @@ defaults:
 # task name, determines output directory path
 task_name: "train"
 
-task_tag: "BraTS23-Patch-Diffusion-512-model-2"
+task_tag: "BraTS23-DiffUNet-roi_96-meantype_xstart_TEST"
 
 # tags to help you identify your experiments
 # you can overwrite this in experiment configs
