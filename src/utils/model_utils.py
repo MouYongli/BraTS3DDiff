@@ -190,7 +190,7 @@ def compute_uncertainty_based_fusion(
     for index in range(num_sample_timesteps):
         uncer_out = 0
         for i in range(uncer_step):
-            uncer_out += sample_outputs[i]["all_model_outputs"][index]
+            uncer_out += sample_outputs[i]["model_outputs"][index]
         uncer_out = uncer_out / uncer_step
         uncer = compute_uncer(uncer_out).cpu()
         w = torch.exp(
@@ -198,6 +198,107 @@ def compute_uncertainty_based_fusion(
             * (1 - uncer)
         )
         for i in range(uncer_step):
-            sample_return += w * sample_outputs[i]["all_samples"][index].cpu()
+            sample_return += w * sample_outputs[i]["pred_xstarts"][index].cpu()
 
     return sample_return
+
+
+
+def get_nonzero_patches(C, P, patch_labels, patch_data):
+    '''
+    
+    Args:
+        patch_labels: bool tensor (shape: (B, 1, W_, H_, D_))
+        patch_data: float tensor (shape: (B, C*P^3, W_, H_, D_))
+                data for every patch location
+    Returns:
+        nonzero_patches: float tensor (shape: (num_nonzero_patches, C, P, P, P))
+    '''
+    
+    # Find nonzero patches
+    nonzero_patch_indices = patch_labels.nonzero(as_tuple=True)
+    num_nonzero_patches = nonzero_patch_indices[0].shape[0]
+    
+    # get the patch data corresponding to nonzero patch indices
+    # B,C*P*P*P,W_,H_,D_ -> (num_nonzero_patches ,C*P*P*P)
+    nonzero_patches = patch_data[
+        nonzero_patch_indices[0],
+        :,
+        nonzero_patch_indices[2],
+        nonzero_patch_indices[3],
+        nonzero_patch_indices[4],
+    ]
+
+    # nonzero_patch: (num_nonzero_patches, C*P*P*P) -> (num_nonzero_patches, C, patch_size, patch_size, patch_size)
+    nonzero_patches = nonzero_patches.view(
+        -1, C, P, P, P
+    )
+
+    assert nonzero_patches.shape == (
+        num_nonzero_patches,
+        C,
+        P,
+        P,
+        P,
+    )
+    
+    return nonzero_patches
+
+
+def fill_in_window_with_patches(window,patch_size,patch_labels,fill_patches):
+    '''
+    fill in a (zero tensor) window, at the tumor (non-tumor) patch locations [patch_labels]
+    with respective tumor (non-tumor) patch data [fill_patches]
+
+    Args:
+        window: tensor for the entire window (shape: (B, C, W, H, D))
+            window tensor should be uninitialized ie zero at locations where patch_labels==1
+        patch_labels: bool tensor (shape: (B, 1, W_, H_, D_)) indexes the patch locations, (W_= W//P, H_= H//P, D_= D//P)
+        fill_patches: float tensor (shape: (X, C, P, P, P)) , patch data to fill in with
+                where X is the number of patches where patch_labels==1
+    Returns:
+        nonzero_patches: float tensor (shape: (num_nonzero_patches, C, P, P, P))
+    '''
+    
+    # fill in the zero tensor pred_mask created before, at the tumor patch locations
+    #  with the corresponding predicted mask patches
+    fill_indices = patch_labels.nonzero(as_tuple=False)
+    assert fill_patches.shape[0] == len(fill_indices)
+
+    for j in range(len(fill_indices)):
+        b, _, w_idx, h_idx, d_idx = fill_indices[j]
+        assert torch.all(window[
+            b,
+            :,
+            w_idx * patch_size : (w_idx + 1) * patch_size,
+            h_idx * patch_size : (h_idx + 1) * patch_size,
+            d_idx * patch_size : (d_idx + 1) * patch_size,
+        ] == 0).item()
+
+        window[
+            b,
+            :,
+            w_idx * patch_size : (w_idx + 1) * patch_size,
+            h_idx * patch_size : (h_idx + 1) * patch_size,
+            d_idx * patch_size : (d_idx + 1) * patch_size,
+        ] = fill_patches[j]
+    return window
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

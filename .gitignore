@@ -319,3 +319,10 @@ configs/local/default.yaml
 #synapse access and config
 configs/synapse/*
 ./synapse_auth_keys/*
+
+rwth_hpc_slurm/log/*
+
+*.zip
+*.csv
+*.tar.gz
+*.wandb
