@@ -198,7 +198,7 @@ class BraTSDataset(Dataset):
         return len(self.image_path)
 
     def __getitem__(self, index: int) -> Any:
-        """Mask with shape C x W x H x D image with shape C x W x H x D volume_map with shape C x
+        """Mask with shape C x W x H x D, image with shape C x W x H x D volume_map with shape C x
         W//N x H//N x D//N."""
         if self.mode in ["train", "val"]:
             data = self.read_data(self.image_path[index])

@@ -9,7 +9,7 @@ from einops import repeat, rearrange, reduce
 
 from src.loss.brats_loss import BraTSLoss
 from monai.inferers import SlidingWindowInferer
-from src.utils.model_utils import compute_subregions_pred_metrics
+from src.utils.model_utils import compute_segmentation_metrics
 
 
 class BraTSLitModule(LightningModule):
@@ -99,7 +99,7 @@ class BraTSLitModule(LightningModule):
 
         # compute scores on binary logits for every subregion
         logits = logits.sigmoid().gt(0.5)
-        pred_scores = compute_subregions_pred_metrics(logits, mask, C, subregions_names)
+        pred_scores = compute_segmentation_metrics(logits, mask, C, subregions_names)
         self._log_scores(pred_scores, prefix=mode, on_epoch=True, prog_bar=True)
 
     def _log_scores(

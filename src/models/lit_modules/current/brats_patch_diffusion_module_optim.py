@@ -1,41 +1,44 @@
 import copy
 import os
-from typing import Any, Dict, Tuple
-import torch
-import numpy as np
 import time
+from typing import Any, Dict, Tuple
 
+import numpy as np
+import torch
 from lightning import LightningModule
-from torchmetrics import MeanMetric
-import torch as th
-from src.models.diffusion import gaussian_diffusion as gd
-from src.models.diffusion.enums import LossType, ModelMeanType, ModelVarType
-from src.models.diffusion.noise_schedule import get_named_beta_schedule
-from src.models.diffusion.respace import SpacedDiffusion, space_timesteps
+
+from src.models.diffusion.enums import ModelMeanType
 from src.models.diffusion.timestep_sampler import (
     LossAwareSampler,
-    LossSecondMomentResampler,
     ScheduleSampler,
-    UniformSampler,
 )
-from src.utils.model_utils import compute_segmentation_metrics
-from src.utils.model_utils import (
-    compute_uncertainty_based_fusion,
-)
-from src.loss.brats_loss import BraTSLoss
-from src.loss.denoising_loss import DenoisingLoss
-
-from src.utils import RankedLogger
-from typing import Callable, Any
-
-from src.models.networks.unet.basic_unet_denoise import PatchDenoiseUNet
-from src.models.networks.unet.basic_unet import PatchUNetEncoder
+from src.models.diffusion.respace import SpacedDiffusion
 from src.models.diffusion.build_diffusion import BuildDiffusion
 
+from src.loss.brats_loss_new import MultiResSegmentLoss
+from src.loss.denoising_loss import DenoisingLoss
+from src.loss.patch_tumor_loss import MultiResPatchClassifyLoss
+
+from src.metrics.multi_res_metrics import MultiResSegmentMetrics, MultiResPatchClassifyMetrics
+
+from src.models.networks.patch_unet.patch_unet_denoise import PatchDenoiseUNet
+from src.models.networks.patch_unet.patch_enc import PatchUpsample, PatchUNetEncoder
+from src.models.networks.swinunetr.swinunetr_enc_new import SwinUNETREnc128
+
 from monai.inferers.inferer import SlidingWindowInferer
-from src.models.diffusion.enums import *
-from src.models.networks.swinunetr.swinunetr_enc import SwinUNETREnc
-from src.loss.patch_tumor_loss import PatchTumorLoss
+
+from src.utils.model_utils import (
+    compute_uncertainty_based_fusion,
+    get_all_patches,
+    expand_patches,
+    get_nonzero_patches,
+    window2patches,
+    patches2window,
+    fill_in_window_with_patches
+    
+)
+from src.utils import RankedLogger
+
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
@@ -55,11 +58,12 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
 
     def __init__(
         self,
-        optimizer: th.optim.Optimizer,
-        scheduler: th.optim.lr_scheduler,
-        denoise_net: PatchDenoiseUNet,
-        patchify_net: SwinUNETREnc,
+        optimizer: torch.optim.Optimizer,
+        scheduler: torch.optim.lr_scheduler,
+        patchify_net: SwinUNETREnc128,
+        patch_up_net: PatchUpsample,
         patch_emb_net: PatchUNetEncoder,
+        patch_denoise_net: PatchDenoiseUNet,
         diffusion: BuildDiffusion,
         sampler: ScheduleSampler,
         inferer: SlidingWindowInferer,
@@ -70,7 +74,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
 
         :param optimizer: The optimizer to use for training.
         :param scheduler: The learning rate scheduler to use for training.
-        :param denoise_net: The denoising model
+        :param patch_denoise_net: The denoising model
         :param patchify_net: The SwinT encoder for patchifying the image
         :param patch_emb_net: Network for upsampling SwinT patch embeddings,
                                 and computing UNet Enc features on those embeddings
@@ -88,9 +92,10 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
 
         log.info("Creating model and diffusion...")
 
-        self.denoise_net: PatchDenoiseUNet = denoise_net
-        self.patchify_net: SwinUNETREnc = patchify_net
+        self.patchify_net: SwinUNETREnc128 = patchify_net
+        self.patch_up_net: PatchUpsample = patch_up_net # and up net
         self.patch_emb_net: PatchUNetEncoder = patch_emb_net
+        self.patch_denoise_net: PatchDenoiseUNet = patch_denoise_net
 
         self.diffusion: SpacedDiffusion = diffusion.diffusion
         self.sample_diffusion: SpacedDiffusion = diffusion.sample_diffusion
@@ -98,14 +103,20 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
 
         self.inferer: SlidingWindowInferer = inferer
 
-        # self.train_loss = MeanMetric()
-        self.criterion = BraTSLoss()
-        self.patch_criterion = PatchTumorLoss(
-            mode="classify", patch_res=self.hparams.extra_kwargs.patch_sizes, avg=True
+        self.patch_classify_criterion = MultiResPatchClassifyLoss(
+            mode="classify", patch_res=self.hparams.extra_kwargs.patch_sizes, scale_loss=1.0
         )
         self.denoising_criterion = DenoisingLoss(diffusion=self.diffusion)
+        self.segment_criterion = MultiResSegmentLoss(patch_res=self.hparams.extra_kwargs.patch_sizes, 
+                                                incl_mean=True, scale_loss=0.5)
 
-        # self.dice_metric = DiceMetric(include_background=False, reduction="mean_batch", get_not_nans=True, ignore_empty=False)
+        self.patch_classify_metric = MultiResPatchClassifyMetrics(patch_sizes=self.hparams.extra_kwargs.patch_sizes,
+                                                                  sigmoid=True, thresh=self.hparams.extra_kwargs.patch_thresh)
+
+        self.segment_metric = MultiResSegmentMetrics(patch_sizes=self.hparams.extra_kwargs.patch_sizes, incl_mean=True,
+                                                     channels=self.hparams.extra_kwargs.subregions_names,
+                                                     sigmoid=True, thresh=0.5)
+
         # self.automatic_optimization = False
 
     def on_load_checkpoint(self, checkpoint):
@@ -119,24 +130,25 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
 
         def _patchify_image(image):
             # image -> patch tokens
-            out = self.patchify_net(image, pred_mode="classify")
+            out = self.patchify_net(image)
             patch_embeddings, patch_preds = out["embeddings"], out["labels"]
             return patch_embeddings, patch_preds
 
         def _up_and_embed(patch_embeddings, patch_size):
             # upscale patch_embeddings to match patch_size, and
             # compute embeddings for the upsampled representations
-            patch, embeddings = self.patch_emb_net(patch_embeddings, patch_size)
+            patch = self.patch_up_net(patch_embeddings, patch_size)
+            embeddings = self.patch_emb_net(patch)
             return patch, embeddings
 
         def _q_sample(x_start, t):
-            noise = th.randn_like(x_start)
+            noise = torch.randn_like(x_start)
             x_t = self.diffusion.q_sample(x_start, t, noise=noise)
             return x_t, noise
 
-        def _denoise(x_t, t, patch, embeddings, patch_size):
-            denoise_out = self.denoise_net(
-                x_t, t=t, image=patch, embeddings=embeddings, patch_size=patch_size
+        def _denoise(x_t, t, patch, embeddings):
+            denoise_out = self.patch_denoise_net(
+                x_t, t=t, image=patch, embeddings=embeddings
             )
             return denoise_out
 
@@ -151,32 +163,30 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
                 raise NotImplementedError(self.diffusion.model_mean_type)
             return pred_xstart
 
-        def _ddim_sample(mask_patch_shape, patch, embeddings, patch_size):
+        def _ddim_sample(mask_patch_shape, patch, embeddings):
             sample_out = self.sample_diffusion.ddim_sample_loop(
-                self.denoise_net,
+                self.patch_denoise_net,
                 mask_patch_shape,
                 model_kwargs={
                     "image": patch,
-                    "embeddings": embeddings,
-                    "patch_size": patch_size,
+                    "embeddings": embeddings                
                 },
             )
             sample_out = sample_out["sample"]
             return sample_out
 
-        def _ddim_sample_uncer_aware(mask_patch_shape, patch, embeddings, patch_size):
+        def _ddim_sample_uncer_aware(mask_patch_shape, patch, embeddings):
             # uncertainty fusion based from diffunet
             uncer_step = self.hparams.extra_kwargs.uncer_step
             sample_outputs = []
             for i in range(uncer_step):
                 sample_outputs.append(
                     self.sample_diffusion.ddim_sample_loop(
-                        self.denoise_net,
+                        self.patch_denoise_net,
                         mask_patch_shape,
                         model_kwargs={
                             "image": patch,
                             "embeddings": embeddings,
-                            "patch_size": patch_size,
                         },
                         viz_kwargs=None,
                     )
@@ -211,7 +221,6 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
                 kwargs.get("t"),
                 kwargs.get("patch"),
                 kwargs.get("embeddings"),
-                kwargs.get("patch_size"),
             )
 
         elif pred_type == "pred_xstart":
@@ -225,7 +234,6 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
                 kwargs.get("mask_patch_shape"),
                 kwargs.get("patch"),
                 kwargs.get("embeddings"),
-                kwargs.get("patch_size"),
             )
 
         elif pred_type == "ddim_sample_uncer_aware":
@@ -233,7 +241,6 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
                 kwargs.get("mask_patch_shape"),
                 kwargs.get("patch"),
                 kwargs.get("embeddings"),
-                kwargs.get("patch_size"),
             )
 
     def on_train_start(self) -> None:
@@ -242,19 +249,8 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         # so it's worth to make sure validation metrics don't store results from these checks
         log.info("Started Training...")
 
-    def patch_model_step(self, image, patch_tumor_labels) -> th.Tensor:
 
-        # get patch embeddings and labels from SwinT encoder
-        patches_embeddings, patches_pred_labels = self.forward(
-            image=image, pred_type="patch_embeddings"
-        )
-        patches_classify_loss = self.patch_criterion(
-            patches_pred_labels, patch_tumor_labels
-        )
-        # self.manual_backward(patches_classify_loss['loss'])
-        return patches_embeddings, patches_pred_labels, patches_classify_loss
-
-    def model_step(self, batch) -> th.Tensor:
+    def model_step(self, batch) -> torch.Tensor:
         """Perform a single model step on a batch of data.
             1. Compute patch embeddings and pred patch tumor labels using SwinT encoder
             2. Compute patch classification loss between pred patch tumor labels & GT patch tumor labels
@@ -288,48 +284,30 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         patches_embeddings, patches_pred_labels = self.forward(
             image=image, pred_type="patchify"
         )
-        patches_classify_loss_dict = self.patch_criterion(
-            patches_pred_labels, patch_tumor_labels
-        )
+        patches_classify_loss_dict = self.patch_classify_criterion(patches_pred_labels, patch_tumor_labels)
 
-        loss_dict = {"deno_loss": 0.0, "seg_loss": 0.0, "masked_seg_loss": 0.0}
+        loss_dict = {"deno_loss": 0.0}
         loss_dict.update(patches_classify_loss_dict)
 
-        # loss_dict.update({f"{x}_{y}loss_res={k}":0.0 for x in ['patch_seg', 'window_seg'] for y in ['dice_','ce_','deno_',''] for k in patch_sizes})
         patch_sizes = self.hparams.extra_kwargs.patch_sizes
         assert len(patch_sizes) == 2
-        pred_seg_masks = []
-        masked_pred_seg_masks = []
+        pred_seg_masks = {}
+        masked_pred_seg_masks = {}
 
         for i, patch_size in enumerate(patch_sizes):
-
             patch_embeddings = patches_embeddings[patch_size]
             B, C_, W_, H_, D_ = patch_embeddings.shape
-            patch_emb_size = self.hparams.extra_kwargs.patch_emb_size
+            patch_emb_size = self.hparams.extra_kwargs.patch_emb_sizes[i]
             assert (
                 (C_ == patch_emb_size**3)
                 and (W_ == (W // patch_size))
                 and (H_ == (H // patch_size))
                 and (D_ == (D // patch_size))
             )
-            W_, H_, D_ = (W // patch_size, H // patch_size, D // patch_size)
 
-            # reshape patch embeddings from 1-D features to 3-D features,
-            # #and add all patch locations to the batch dimension
+            # Add all patch locations to the batch dimension, and reshape patch 1D embeddings to 3D
             # patch_embeddings: (B,C_,W_,H_,D_) -->  (B*W_*H_,D_ x 1 x patch_emb_size x patch_emb_size x patch_emb_size)
-            patch_embeddings = (
-                patch_embeddings.permute(0, 2, 3, 4, 1)
-                .contiguous()
-                .view(-1, 1, patch_emb_size, patch_emb_size, patch_emb_size)
-            )
-            assert patch_embeddings.shape == (
-                B * W_ * H_ * D_,
-                1,
-                patch_emb_size,
-                patch_emb_size,
-                patch_emb_size,
-            )
-
+            patch_embeddings = get_all_patches(patch_embeddings, patch_size = patch_emb_size, patch_channels = 1)
             # upsample the patch embeddings from patch_emb_size to match the patch_size resolutions,
             # and embed the upsampled patches
             patch, embeddings = self.forward(
@@ -337,9 +315,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
                 patch_size=patch_size,
                 pred_type="up_and_embed",
             )
-            assert patch.shape == (
-                B * W_ * H_ * D_,
-                image.shape[1],
+            assert patch.shape[2:] == (
                 patch_size,
                 patch_size,
                 patch_size,
@@ -347,19 +323,12 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
 
             # mask_: x_start
             x_start = (mask) * 2 - 1
-
             # apply noise to mask (x_start)
             t, weights = self.schedule_sampler.sample(x_start)
             x_t, noise = self.forward(x_start=x_start, t=t, pred_type="q_sample")
-
             # get noised mask patches from the entire noisy mask x_t and add all mask patches in the batch dimension
-            # mask (B,C,W,H,D) -> noised_mask_patch (B*W_*H_*D_,C,patch_size,patch_size,patch_size)
-            x_t_patch = x_t.view(B, C, W_, patch_size, H_, patch_size, D_, patch_size)
-            x_t_patch = (
-                x_t_patch.permute(0, 2, 4, 6, 1, 3, 5, 7)
-                .contiguous()
-                .view(-1, C, patch_size, patch_size, patch_size)
-            )
+            # X_t (B,C,W,H,D) -> x_t_patch (B*W_*H_*D_,C,patch_size,patch_size,patch_size)
+            x_t_patch = window2patches(x_t, patch_size)
 
             # repeat t and weight values for all the patches
             # since all mask patches have the same noise level
@@ -371,39 +340,24 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
                 t=t_patch,
                 patch=patch,
                 embeddings=embeddings,
-                patch_size=patch_size,
                 pred_type="denoise_out",
             )
-
             # Reshape denoise_out_patch to get the window level denoise_out
-            # (B*W_*H_,D_,C,patch_size,patch_size,patch_size) ->
-            # (B,C,W_,patch_size,H_,patch_size,D_,patch_size) ->
-            # (B,C,W,H,D)
-            denoise_out = (
-                denoise_out_patch.view(
-                    B, W_, H_, D_, C, patch_size, patch_size, patch_size
-                )
-                .permute(0, 4, 1, 5, 2, 6, 3, 7)
-                .contiguous()
-                .view(B, C, W, H, D)
-            )
+            # (B*W_*H_,D_,C,patch_size,patch_size,patch_size) -> (B,C,W,H,D)
+            denoise_out = patches2window(denoise_out_patch,win_size=(W,H,D))
 
             # denoising loss on the entire window
-            losses = self.denoising_criterion(
-                model_output=denoise_out, x_start=x_start, x_t=x_t, t=t, noise=noise
+            deno_loss = self.denoising_criterion(
+                model_output=denoise_out, x_start=x_start, x_t=x_t, t=t, noise=noise, weights=weights
             )
-
-            deno_loss = (losses["loss"] * weights).mean()
             loss_dict[f"deno_loss_res={patch_size}"] = deno_loss
             loss_dict[f"deno_loss"] += deno_loss
-
             # update deno loss history (for importance sampling objective)
             if isinstance(self.schedule_sampler, LossAwareSampler):
                 self.schedule_sampler.update_with_local_losses(
-                    t, losses["loss"].detach()
+                    t, deno_loss.detach()
                 )
 
-            ###****Compute Segmentation Loss*****
             # Get x_start_patch (B*W_*H_,D_,C,patch_size,patch_size,patch_size)
             pred_mask_patch = self.forward(
                 x_t=x_t_patch,
@@ -411,121 +365,43 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
                 denoise_out=denoise_out_patch,
                 pred_type="pred_xstart",
             )
+            # reshape predicted mask patches to get the window mask
+            ## (B*W_*H_,D_,C,patch_size,patch_size,patch_size) -> (B,C,W,H,D)
+            pred_mask = patches2window(pred_mask_patch, win_size = (W, H, D))
+            pred_seg_masks[patch_size] = pred_mask
 
-            # reshape predicted mask patches to get the whole mask
-            ## (B*W_*H_,D_,C,patch_size,patch_size,patch_size) ->
-            ## (B,C,W_,patch_size,H_,patch_size,D_,patch_size) ->
-            ## (B,C,W,H,D)
-            pred_mask = (
-                pred_mask_patch.view(
-                    B, W_, H_, D_, C, patch_size, patch_size, patch_size
-                )
-                .permute(0, 4, 1, 5, 2, 6, 3, 7)
-                .contiguous()
-                .view(B, C, W, H, D)
-            )
-            pred_seg_masks.append(pred_mask)
-
-            ##Compute seg losses b/w predicted mask and true mask
-            seg_losses = self.criterion(pred_mask * foreground, mask)
-            loss_dict[f"seg_dice_loss_res={patch_size}"] = seg_losses["dice_loss"]
-            loss_dict[f"seg_ce_loss_res={patch_size}"] = seg_losses["bce_loss"]
-            loss_dict[f"seg_loss_res={patch_size}"] = (
-                seg_losses["dice_loss"] + seg_losses["bce_loss"]
-            )
-            loss_dict["seg_loss"] += loss_dict[f"seg_loss_res={patch_size}"]
-
-            ###****Compute Masked Segmentation Loss*****
-            # Mask the predicted segmentation mask using the patch pred tumor labels and then compute Window level seg loss
-            ## mask the non-tumor patches of pred_mask so that it gets a penalty if the predicted patch labels are wrong
-
-            # binarize pred labels of patches (tumor/non-tumor labels)
-            patch_pred_labels = patches_pred_labels[patch_size].sigmoid().gt(0.5)
-
-            # expand shape of patch_pred_labels so that it matches the shape of pred_mask
-            # patch_pred_labels (B,1,W_,H_,D_) -> (B,1,W_,1,H_,1,D_,1) -> B,C,W_,P,H_,P,D_,P -> B,C,W,H,D
-            patch_pred_labels = (
-                patch_pred_labels.view(B, 1, W_, 1, H_, 1, D_, 1)
-                .expand(B, C, W_, patch_size, H_, patch_size, D_, patch_size)
-                .contiguous()
-                .view(B, C, W, H, D)
-            )
-
+            # Scale the predicted segmentation mask using the patch pred tumor labels and then compute seg loss
+            ## Eg. If pred_mask patch has a tumor region but if the corresponding patch tumor prob is low, 
+            # the patchify_net gets a penalty since it should have predicted tumor with a high probabilty (penalises false negatives)
+            # Expand shape of patch_pred_labels so that it matches the shape of pred_mask
+            # patch_pred_labels (B,1,W_,H_,D_) ->  B,C,W,H,D
+            patch_pred_labels = patches_pred_labels[patch_size].sigmoid()
+            patch_pred_labels = expand_patches(patch_pred_labels, patch_size, C)
             masked_pred_mask = patch_pred_labels * pred_mask
-            masked_pred_seg_masks.append(masked_pred_mask)
+            masked_pred_seg_masks[patch_size] = masked_pred_mask
 
-            masked_seg_losses = self.criterion(masked_pred_mask * foreground, mask)
-            loss_dict[f"masked_seg_dice_loss_res={patch_size}"] = masked_seg_losses[
-                "dice_loss"
-            ]
-            loss_dict[f"masked_seg_ce_loss_res={patch_size}"] = masked_seg_losses[
-                "bce_loss"
-            ]
-            loss_dict[f"masked_seg_loss_res={patch_size}"] = (
-                masked_seg_losses["dice_loss"] + masked_seg_losses["bce_loss"]
-            )
-            loss_dict["masked_seg_loss"] += loss_dict[
-                f"masked_seg_loss_res={patch_size}"
-            ]
-
-        # scale loss by no. of patch resolutions
-        # loss_dict['seg_loss'] /= len(patch_sizes)
-        # loss_dict['masked_seg_loss'] /= len(patch_sizes)
-        loss_dict[f"deno_loss"] /= len(patch_sizes)
-
-        ###*****Compute Segmentation Loss of mean of output masks predicted using multiple patch-sizes******
         # Mean of mask window predictions using all the patch_sizes
-        mean_pred_mask = torch.mean(torch.stack(pred_seg_masks), dim=0)
-        seg_losses = self.criterion(mean_pred_mask * foreground, mask)
-        loss_dict[f"seg_dice_loss_res=mean"] = seg_losses["dice_loss"]
-        loss_dict[f"seg_ce_loss_res=mean"] = seg_losses["bce_loss"]
-        loss_dict[f"seg_loss_res=mean"] = (
-            seg_losses["dice_loss"] + seg_losses["bce_loss"]
-        )
+        mean_pred_mask = torch.stack(list(pred_seg_masks.values())).mean(dim=0)
+        pred_seg_masks['mean'] = mean_pred_mask
+        seg_loss = self.segment_criterion(pred_seg_masks, mask, foreground)
+        loss_dict.update(seg_loss)
 
-        loss_dict["seg_loss"] += loss_dict[f"seg_loss_res=mean"]
-        loss_dict["seg_loss"] /= len(patch_sizes) + 1
-
-        ###*****Compute Masked Segmentation Loss of mean of output masks predicted using multiple patch-sizes******
         # (MASKED) Mean of mask window predictions using all the patch_sizes
-        masked_mean_pred_mask = torch.mean(torch.stack(masked_pred_seg_masks), dim=0)
-        masked_seg_losses = self.criterion(masked_mean_pred_mask * foreground, mask)
-        loss_dict[f"masked_seg_dice_loss_res=mean"] = masked_seg_losses["dice_loss"]
-        loss_dict[f"masked_seg_ce_loss_res=mean"] = masked_seg_losses["bce_loss"]
-        loss_dict[f"masked_seg_loss_res=mean"] = (
-            masked_seg_losses["dice_loss"] + masked_seg_losses["bce_loss"]
-        )
-
-        loss_dict["masked_seg_loss"] += loss_dict[f"masked_seg_loss_res=mean"]
-        loss_dict["masked_seg_loss"] /= len(patch_sizes) + 1
-
-        # Consistency between pred seg masks predicted using different patch sizes
-        ## So that the outputs are not very different from each other
-        consistency_losses = self.criterion(
-            pred_seg_masks[0], pred_seg_masks[1].sigmoid()
-        )
-        loss_dict[f"seg_consistency_loss"] = consistency_losses["bce_loss"]
-
-        # ****Consistency Loss between masked pred seg masks predicted using different patch sizes***
-        ## So that the outputs are not very different from each other
-        masked_consistency_losses = self.criterion(
-            masked_pred_seg_masks[0], masked_pred_seg_masks[1].sigmoid()
-        )
-        loss_dict[f"masked_seg_consistency_loss"] = masked_consistency_losses[
-            "bce_loss"
-        ]
+        masked_mean_pred_mask = torch.stack(list(masked_pred_seg_masks.values())).mean(dim=0)
+        masked_pred_seg_masks['mean'] = masked_mean_pred_mask
+        masked_seg_loss = self.segment_criterion(masked_pred_seg_masks, mask, foreground, prefix='masked_seg')
+        loss_dict.update(masked_seg_loss)
 
         loss_dict["loss"] = (
-            loss_dict["patch_classify_loss"]
-            + loss_dict[f"deno_loss"]
-            + loss_dict["seg_loss"]
-            + loss_dict["masked_seg_loss"]
-            + loss_dict[f"seg_consistency_loss"]
-            + loss_dict[f"masked_seg_consistency_loss"]
+            loss_dict["patch_classify_loss"] #bce_patch_16+bce_patch_32
+            + loss_dict["deno_loss"] #deno_mse_patch_16+deno_mse_patch_32
+            + loss_dict["seg_loss"] #seg_loss_patch_16+seg_loss_patch_32+seg_loss_patch_mean (seg_loss=(dice+bce)/2)
+            + loss_dict["masked_seg_loss"] #same as seg_loss
         )
         return loss_dict
 
-    def training_step(self, batch: Tuple[th.Tensor, Any], batch_idx: int) -> th.Tensor:
+
+    def training_step(self, batch: Tuple[torch.Tensor, Any], batch_idx: int) -> torch.Tensor:
         """Perform a single training step on a batch of data from the training set.
 
         :param batch: A batch of data (a tuple) containing the input tensor of images and target
@@ -535,7 +411,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         """
 
         loss_dict = self.model_step(batch)
-        self._log_scores(
+        self.log_scores(
             loss_dict, on_step=True, on_epoch=True, prog_bar=True, prefix="train"
         )
 
@@ -546,10 +422,6 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         # return loss or backpropagation will fail
         return loss_dict["loss"]
 
-    def on_train_batch_end(
-        self, outputs: th.Tensor, batch: Any, batch_idx: int
-    ) -> None:
-        pass
 
     def predict_seg_mask(self, image, ret_patch_labels=False):
         """
@@ -580,49 +452,35 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         patches_embeddings, patches_pred_labels = self.forward(
             image=image, pred_type="patchify"
         )
-        patch_emb_size = self.hparams.extra_kwargs.patch_emb_size
-        C_ = patch_emb_size**3
 
-        pred_masks = []
+        pred_masks = {}
 
         # filter tumor patch locations using patches_pred_labels and generate masks only for these patch locations
         for i, patch_size in enumerate(patch_sizes):
-
+            patch_emb_size = self.hparams.extra_kwargs.patch_emb_sizes[i]
+            C_ = patch_emb_size**3
             # patch locations
             W_, H_, D_ = (W // patch_size, H // patch_size, D // patch_size)
 
-            # get tumor patch indices
+            # binarize patch tumor predictions
             patch_pred_labels = (
                 patches_pred_labels[patch_size]
                 .sigmoid()
                 .gt(self.hparams.extra_kwargs.patch_thresh)
             )
             assert patch_pred_labels.shape == (B, 1, W_, H_, D_)
-            tumor_patch_indices = patch_pred_labels.nonzero(as_tuple=True)
-            num_tumor_patches = tumor_patch_indices[0].shape[0]
+
+            # get patch_embeddings for the current patch_size
+            patch_embeddings = patches_embeddings[patch_size]
+            assert patch_embeddings.shape == (B, C_, W_, H_, D_)
+
+            #filter patch_embeddings using the predicted patch labels to get the tumor_patch_embeddings
+            num_tumor_patches, tumor_patch_embeddings  = get_nonzero_patches(patch_pred_labels, patch_embeddings, patch_emb_size)
 
             # create a zero tensor for the predicted whole mask
             pred_mask = torch.zeros(B, C, W, H, D).to(image)
 
             if num_tumor_patches > 0:
-                # get patch_embeddings for the current patch_size
-                patch_embeddings = patches_embeddings[patch_size]
-                assert patch_embeddings.shape == (B, C_, W_, H_, D_)
-
-                # get the patch_embeddings corresponding to tumor patch indices
-                # B,C_,W_,H_,D_ -> (num_tumor_patches ,C_)
-                tumor_patch_embeddings = patch_embeddings[
-                    tumor_patch_indices[0],
-                    :,
-                    tumor_patch_indices[2],
-                    tumor_patch_indices[3],
-                    tumor_patch_indices[4],
-                ]
-
-                # tumor_patch_embeddings: (num_tumor_patches, C_) -> (num_tumor_patches, 1, patch_emb_size, patch_emb_size, patch_emb_size)
-                tumor_patch_embeddings = tumor_patch_embeddings.view(
-                    -1, 1, patch_emb_size, patch_emb_size, patch_emb_size
-                )
                 assert tumor_patch_embeddings.shape == (
                     num_tumor_patches,
                     1,
@@ -637,9 +495,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
                     patch_size=patch_size,
                     pred_type="up_and_embed",
                 )
-                assert patch.shape == (
-                    num_tumor_patches,
-                    image.shape[1],
+                assert patch.shape[2:] == (
                     patch_size,
                     patch_size,
                     patch_size,
@@ -658,188 +514,116 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
                     mask_patch_shape=mask_patch_shape,
                     patch=patch,
                     embeddings=embeddings,
-                    patch_size=patch_size,
                 )
-
                 # fill in the zero tensor pred_mask created before, at the tumor patch locations
                 #  with the corresponding predicted mask patches
-                fill_indices = patch_pred_labels.nonzero(as_tuple=False)
-                for j in range(num_tumor_patches):
-                    b, _, w_idx, h_idx, d_idx = fill_indices[j]
-                    pred_mask[
-                        b,
-                        :,
-                        w_idx * patch_size : (w_idx + 1) * patch_size,
-                        h_idx * patch_size : (h_idx + 1) * patch_size,
-                        d_idx * patch_size : (d_idx + 1) * patch_size,
-                    ] = pred_tumor_mask_patch[j]
+                pred_mask = fill_in_window_with_patches(pred_mask, patch_pred_labels, pred_tumor_mask_patch)
 
-            pred_masks.append(pred_mask)
-
-        out = {f"res={patch_sizes[i]}": pred_masks[i] for i in range(len(patch_sizes))}
+            pred_masks[patch_size] = pred_mask
 
         # Mean of mask window predictions using all the
-        mean_pred_mask = torch.mean(torch.stack(pred_masks), dim=0)
-        out["res=mean"] = mean_pred_mask
+        mean_pred_mask = torch.stack(list(pred_masks.values())).mean(dim=0)
+        pred_masks['mean'] = mean_pred_mask
 
         if ret_patch_labels:
-            return out, patches_pred_labels
+            return pred_masks, patches_pred_labels
         else:
-            return out
+            return pred_masks
+
 
     def validation_step(self, batch):
         # validation is performed on random crops of whole image
-
         start_time = time.time()
-
         image, mask, foreground, patch_tumor_labels = (
             batch["image"],
             batch["mask"],
             batch["foreground"],
             batch["patch_tumor_labels"],
         )
-        B, C, W, H, D = mask.shape
-        mask = mask.float()
-        subregions_names = self.hparams.extra_kwargs.subregions_names
-        patch_sizes = self.hparams.extra_kwargs.patch_sizes
-
-        val_metrics = {}
-
-        # get predicted masks and pred patch tumor labels
         pred_masks, pred_patch_tumor_labels = self.predict_seg_mask(
             image, ret_patch_labels=True
         )
-
-        # Compute patch tumor classification metrics
-        patches_classify_loss_dict = self.patch_criterion(
+        #compute losses
+        val_losses = {}
+        ##patch classify loss
+        patch_classify_losses = self.patch_classify_criterion(
             pred_patch_tumor_labels, patch_tumor_labels
         )
-        val_metrics.update(patches_classify_loss_dict)
+        val_losses.update(patch_classify_losses)
+        ##seg loss
+        seg_losses = self.segment_criterion(pred_masks, mask, foreground)
+        val_losses.update(seg_losses)
+        val_losses['loss'] = val_losses['patch_classify_loss'] + val_losses['seg_loss']
+        self.log_scores(val_losses, prefix="val", on_epoch=True, prog_bar=True)
 
-        patch_classify_dice = 0.0
-        for patch_size in patch_sizes:
-            pred_scores, dice = compute_segmentation_metrics(
-                pred_patch_tumor_labels[patch_size],
-                patch_tumor_labels[patch_size],
-                1,
-                subregions_names,
-                prefix_key="patch_classify",
-                suffix_key={"res": patch_size},
-                thresh=self.hparams.extra_kwargs.patch_thresh,
-            )
-            val_metrics.update(pred_scores)
-            patch_classify_dice += dice
-        patch_classify_dice /= len(patch_sizes)
-        val_metrics["patch_classify_dice"] = patch_classify_dice
+        #compute metrics
+        self.patch_classify_metric(preds=pred_patch_tumor_labels, trues=patch_tumor_labels)
+        self.segment_metric(preds=pred_masks, trues=mask, masks=foreground)
 
-        # Compute whole image segmentation metrics using
-        ## masks predicted using different patch sizes
-        seg_metrics = {"seg_loss": 0, "seg_dice": 0}
+        dur = time.time() - start_time
+        log.info(f"One val step with {image.shape} images took {dur:0.4f} secs")
 
-        for key, pred_mask in pred_masks.items():
-            # compute segmentation loss
-            seg_losses = self.criterion(pred_mask * foreground, mask)
-            seg_metrics[f"seg_dice_loss_{key}"] = seg_losses["dice_loss"]
-            seg_metrics[f"seg_ce_loss_{key}"] = seg_losses["bce_loss"]
-            seg_metrics[f"seg_loss_{key}"] = (
-                seg_losses["dice_loss"] + seg_losses["bce_loss"]
-            )
-            seg_metrics["seg_loss"] += seg_metrics[f"seg_loss_{key}"]
 
-            # compute segmentation metrics
-            pred_scores, dice = compute_segmentation_metrics(
-                pred_mask * foreground,
-                mask,
-                C,
-                subregions_names,
-                prefix_key="seg",
-                suffix_key=key,
-            )
-            seg_metrics["seg_dice"] += dice
-            seg_metrics.update(pred_scores)
-
-        seg_metrics["seg_loss"] /= len(pred_masks)
-        seg_metrics["seg_dice"] /= len(pred_masks)
-
+    def on_validation_epoch_end(self):
+        val_metrics = {}
+        patch_classify_metrics = self.patch_classify_metric.compute_metrics()
+        val_metrics.update(patch_classify_metrics)
+        seg_metrics = self.segment_metric.compute_metrics()
         val_metrics.update(seg_metrics)
-
-        self._log_scores(val_metrics, prefix="val", on_epoch=True, prog_bar=True)
+        self.log_scores(val_metrics, prefix="val", on_epoch=True, prog_bar=True)
         self.log(
             f"val/dice",
-            val_metrics["seg_dice"],
-            on_step=False,
+            val_metrics["seg_dice_res=mean"],
             on_epoch=True,
             prog_bar=True,
         )
 
-        classify_and_seg_dice = (
-            val_metrics["patch_classify_dice"] + val_metrics["seg_dice"]
-        ) / 2
-        self.log(
-            f"val/class+seg_dice",
-            classify_and_seg_dice,
-            on_step=False,
-            on_epoch=True,
-            prog_bar=True,
-        )
-
-        dur = (time.time() - start_time) / 60
-        log.info(f"Validation took {dur:0.4f} mins")
-
-    def test_step(self, batch: Any, batch_idx: int):
+    def test_step(self, batch):
         # test is performed on whole image using sliding windows
-
+        start_time = time.time()
         data, file_id = batch
         image, mask, foreground = data["image"], data["mask"], data["foreground"]
-        B, _, W, H, D = image.shape
-
         pred_seg_masks = self.inferer(inputs=image, network=self.predict_seg_mask)
-        # pred_seg_masks = {'res=16':torch.randn(B,3,W,H,D),'res=32':torch.randn(B,3,W,H,D),'res=mean':torch.randn(B,3,W,H,D)}
 
-        subregions_names = self.hparams.extra_kwargs.subregions_names
-        # patch_sizes = self.trainer.datamodule.hparams.patch_sizes
-        C = self.hparams.extra_kwargs.num_targets
+        seg_losses = self.segment_criterion(pred_seg_masks, mask, foreground)
+        self.log_scores(seg_losses, prefix="test", on_epoch=True, prog_bar=True)
+        self.segment_metric(preds=pred_seg_masks, trues=mask, masks=foreground)
 
-        test_metrics = {}
-        test_dice = 0
         for key in pred_seg_masks.keys():
-            pred_mask = pred_seg_masks[key] * foreground
-            seg_losses = self.criterion(pred_mask, mask)
-            loss_dice = seg_losses["dice_loss"]
-            loss_bce = seg_losses["bce_loss"]
-            loss = loss_dice + loss_bce
-            test_metrics[f"dice_loss_{key}"] = loss_dice
-            test_metrics[f"bce_loss_{key}"] = loss_bce
-            test_metrics[f"loss_{key}"] = loss
+            pred_mask = pred_seg_masks[key].sigmoid().gt(0.5)
+            pred_seg_masks[key] = pred_mask * foreground
 
-            pred_scores, pred_dice = compute_segmentation_metrics(
-                pred_mask, mask, C, subregions_names, suffix_key=key
-            )
-            test_metrics.update(pred_scores)
-            test_dice += pred_dice
-            pred_seg_masks[key] = pred_mask.sigmoid().gt(0.5)
-
-        test_dice /= len(pred_seg_masks)
-        self._log_scores(test_metrics, prefix="test", on_epoch=True, prog_bar=True)
-        self.log(f"test/dice", test_dice, on_step=False, on_epoch=True, prog_bar=True)
-
+        dur = time.time() - start_time
+        log.info(f"One test step with {image.shape} images took {dur:0.4f} secs")
         return pred_seg_masks, file_id
+
+
+    def on_test_epoch_end(self):
+        seg_metrics = self.segment_metric.compute_metrics()
+        self.log_scores(seg_metrics, prefix="test", on_epoch=True, prog_bar=True)
+        self.log(
+            f"test/dice",
+            seg_metrics["seg_dice_res=mean"],
+            on_epoch=True,
+            prog_bar=True,
+        )
 
     def predict_step(self, batch):
         data, file_ids = batch
         image, foreground = data["image"], data["foreground"]
         pred_seg_masks = self.inferer(inputs=image, network=self.predict_seg_mask)
         for key in pred_seg_masks.keys():
-            pred_mask = pred_seg_masks[key] * foreground
-            pred_seg_masks[key] = pred_mask.sigmoid().gt(0.5)
+            pred_mask = pred_seg_masks[key].sigmoid().gt(0.5)
+            pred_seg_masks[key] = pred_mask * foreground
         return pred_seg_masks, file_ids
 
-    def _log_scores(
+
+    def log_scores(
         self,
         scores: dict,
         prefix="train",
-        on_epoch=False,
-        on_step=False,
+        on_epoch=None,
+        on_step=None,
         prog_bar=False,
     ):
         scores = {f"{prefix}/{k}": v for k, v in scores.items()}
@@ -855,7 +639,8 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         :param stage: Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
         """
         if self.hparams.compile and stage == "fit":
-            self.denoise_net = th.compile(self.denoise_net)
+            #self.patch_denoise_net = torch.compile(self.patch_denoise_net)
+            pass
 
     def configure_optimizers(self) -> Dict[str, Any]:
         """Choose what optimizers and learning-rate schedulers to use in your optimization.

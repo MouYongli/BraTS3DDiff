@@ -33,7 +33,7 @@ class DenoisingLoss(nn.Module):
             model_kwargs={},
         )["output"]
 
-    def _denoising_loss(self, model_output, x_start, x_t, t, noise):
+    def _denoising_loss(self, model_output, x_start, x_t, t, noise, weights):
         loss_terms = {}
 
         loss_terms["mse"] = self._simple_mse_loss(model_output, x_start, noise)
@@ -58,8 +58,10 @@ class DenoisingLoss(nn.Module):
             loss_terms["loss"] = loss_terms["mse"] + loss_terms["vb"]
         else:
             loss_terms["loss"] = loss_terms["mse"]
-        return loss_terms
 
-    def forward(self, model_output, x_start, x_t, t, noise):
+        loss = (loss_terms["loss"] * weights).mean()
+        return loss
+
+    def forward(self, model_output, x_start, x_t, t, noise, weights):
         assert self.diffusion.loss_type in [LossType.MSE, LossType.RESCALED_MSE]
-        return self._denoising_loss(model_output, x_start, x_t, t, noise)
+        return self._denoising_loss(model_output, x_start, x_t, t, noise, weights)

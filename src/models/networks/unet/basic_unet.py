@@ -522,6 +522,8 @@ class Up2x(nn.Module):
         super().__init__()
         if dim is not None:
             spatial_dims = dim
+        
+        assert (in_chns == 1) and (out_chns == 4)
 
         self.upsample = UpSample(
             spatial_dims,
@@ -606,6 +608,8 @@ class Up4x(nn.Module):
         super().__init__()
         if dim is not None:
             spatial_dims = dim
+        
+        assert (in_chns == 1) and (out_chns == 4)
 
         self.upsample_0 = UpSample(
             spatial_dims,
@@ -697,7 +701,7 @@ class PatchUNetEncoder(nn.Module):
         bias: bool = True,
         dropout: Union[float, tuple] = 0.0,
         upsample: str = "deconv",
-        dimensions: Optional[int] = None,
+        dimensions: Optional[int] = None
     ):
         """Upsamples patch embeddings to match patch_size and then applies UNet encoder on the
         upsampled representations.
@@ -749,15 +753,18 @@ class PatchUNetEncoder(nn.Module):
         super().__init__()
         if dimensions is not None:
             spatial_dims = dimensions
+        
+        assert (in_channels == 1) and (out_channels == 4)
+
 
         fea = ensure_tuple_rep(features, 6)
         print(f"BasicUNet features: {fea}.")
 
         self.up2x = Up2x(
-            spatial_dims, 1, out_channels, act, norm, bias, dropout, upsample
+            spatial_dims, in_channels, out_channels, act, norm, bias, dropout, upsample
         )
         self.up4x = Up4x(
-            spatial_dims, 1, out_channels, act, norm, bias, dropout, upsample
+            spatial_dims, out_channels, out_channels, act, norm, bias, dropout, upsample
         )
 
         self.conv_0 = TwoConv(

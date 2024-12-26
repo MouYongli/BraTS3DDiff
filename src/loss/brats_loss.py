@@ -16,9 +16,6 @@ class BraTSLoss(nn.Module):
     def _loss_ce(self, p, y):
         return self.ce(p, y.float())
 
-    def _loss_mse(self, p, y):
-        return self.mse(torch.sigmoid(p), y.float())
-
     def forward(self, p, y):
         # p:predicted mask
         # y: true mask

@@ -5,8 +5,10 @@ import rootutils
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig, OmegaConf
+from src.utils.custom_resolvers import list_cube
 
 OmegaConf.register_new_resolver("eval", eval)
+OmegaConf.register_new_resolver("cube", list_cube)
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #

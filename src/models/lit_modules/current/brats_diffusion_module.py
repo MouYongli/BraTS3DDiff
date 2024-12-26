@@ -17,8 +17,8 @@ from src.models.diffusion.timestep_sampler import (
     ScheduleSampler,
     UniformSampler,
 )
+from src.utils.model_utils import compute_segmentation_metrics
 from src.utils.model_utils import (
-    compute_subregions_pred_metrics,
     compute_uncertainty_based_fusion,
 )
 from src.loss.brats_loss import BraTSLoss
@@ -382,7 +382,7 @@ class BraTSDenoisingDiffusionLitModule(LightningModule):
         )
 
         # compute scores on binary logits for every subregion
-        pred_scores, _ = compute_subregions_pred_metrics(
+        pred_scores, _ = compute_segmentation_metrics(
             pred_mask, mask, C, subregions_names
         )
         self._log_scores(pred_scores, prefix=mode, on_epoch=True, prog_bar=True)
@@ -391,6 +391,7 @@ class BraTSDenoisingDiffusionLitModule(LightningModule):
         # pred_scores = {f"val/{k}":v for k,v in pred_scores.items()}
 
     def validation_step(self, batch):
+        
         return self.val_test_step(batch, mode="val")
 
     def test_step(self, batch: Any):

@@ -11,7 +11,7 @@ from src.loss.brats_loss import BraTSLoss
 
 from src.loss.patch_tumor_loss import PatchTumorLoss
 from monai.inferers import SlidingWindowInferer
-from src.utils.model_utils import compute_subregions_pred_metrics
+from src.utils.model_utils import compute_segmentation_metrics
 import torchmetrics
 
 
@@ -100,7 +100,7 @@ class PatchTumorClassifyLitModule(LightningModule):
         patch_sizes = self.trainer.datamodule.hparams.patch_sizes
         mean_dice = 0.0
         for patch_size in patch_sizes:
-            pred_scores, dice = compute_subregions_pred_metrics(
+            pred_scores, dice = compute_segmentation_metrics(
                 logits[patch_size],
                 patch_tumor_labels[patch_size],
                 1,
