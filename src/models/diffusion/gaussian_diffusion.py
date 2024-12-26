@@ -7,15 +7,14 @@ Docstrings have been added, as well as DDIM sampling and a new collection of bet
 
 import numpy as np
 import torch as th
-from visdom import Visdom
 
 from src.utils.model_utils import mean_flat
 from src.utils.visualization import plot_image_and_mask, plot_mask
 
 from .enums import *
 from .losses import discretized_gaussian_log_likelihood, normal_kl
-
-vis = Visdom(port=8097)
+#from visdom import Visdom
+#vis = Visdom(port=8097)
 import time
 
 
@@ -496,6 +495,58 @@ class GaussianDiffusion:
             "model_output": out["model_output"],
         }
 
+
+    def ddim_sample_zero_tensor(
+        self,
+        x,
+        t,
+        eta=0.0,
+    ):
+        """Sample x_{t-1} from the model using DDIM.
+            where, x_start is a zero tensor
+
+        Same usage as p_sample().
+        """
+
+        x_start = th.zeros_like(x).to(x)
+
+        # Usually our model outputs epsilon, but we re-derive it
+        # in case we used x_start or x_prev prediction.
+        eps = self._predict_eps_from_xstart(x, t, x_start)
+
+        if self.model_mean_type == ModelMeanType.EPSILON:
+            model_output = eps
+        elif self.model_mean_type == ModelMeanType.START_X:
+            model_output = x_start
+
+        else:
+            raise ValueError(f"model_mean_type should be EPSILON, or START_X, model_mean_type received: {self.model_mean_type}")
+
+        alpha_bar = _extract_into_tensor(self.alphas_cumprod, t, x.shape)
+        alpha_bar_prev = _extract_into_tensor(self.alphas_cumprod_prev, t, x.shape)
+        sigma = (
+            eta
+            * th.sqrt((1 - alpha_bar_prev) / (1 - alpha_bar))
+            * th.sqrt(1 - alpha_bar / alpha_bar_prev)
+        )
+        # Equation 12.
+        noise = th.randn_like(x)
+        mean_pred = (
+            x_start * th.sqrt(alpha_bar_prev)
+            + th.sqrt(1 - alpha_bar_prev - sigma**2) * eps
+        )
+        nonzero_mask = (
+            (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))
+        )  # no noise when t == 0
+        sample = mean_pred + nonzero_mask * sigma * noise
+        return {
+            "sample": sample,
+            "pred_xstart": x_start,
+            "model_output": model_output,
+        }
+
+
+
     def ddim_reverse_sample(
         self,
         model,
@@ -574,8 +625,8 @@ class GaussianDiffusion:
             all_samples.append(sample["pred_xstart"])
             all_model_output.append(sample["model_output"])
         final["intermediate_samples"] = intermediate_samples
-        final["all_samples"] = all_samples
-        final["all_model_outputs"] = all_model_output
+        final["pred_xstarts"] = all_samples
+        final["model_outputs"] = all_model_output
 
         # time.sleep(1)
         return final
@@ -615,6 +666,7 @@ class GaussianDiffusion:
             indices = tqdm(indices)
 
         for i in indices:
+            '''
             # intermediate sample visualization
             if viz_kwargs is not None:
                 if viz_kwargs.get("uncer_step") is not None:
@@ -628,6 +680,7 @@ class GaussianDiffusion:
 
                 viz_kwargs["vis"] = vis
                 plot_mask(img[0].cpu(), **viz_kwargs)
+            '''
 
             t = th.tensor([i] * shape[0], device=device)
             with th.no_grad():

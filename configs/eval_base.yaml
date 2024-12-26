@@ -9,7 +9,7 @@ defaults:
   - synapse: syn_acc_sritabrata_gmail
   - callbacks: default
   ## set logger here or use command line (e.g. `python train.py logger=tensorboard`)
-  - logger: [csv, wandb]
+  - logger: [csv]
   #- logger: null
   - trainer: gpu
   - paths: default
@@ -33,7 +33,7 @@ defaults:
 # task name, determines output directory path
 task_name: "test"
 
-task_tag: "BraTS23-DiffUNet-roi_128-meantype_xstart"
+task_tag: "BraTS23-DiffUNet-roi_128-meantype_xstart_TEST"
 
 # tags to help you identify your experiments
 # you can overwrite this in experiment configs
@@ -58,6 +58,6 @@ predict: False
 #ckpt_path: '${paths.log_dir}/BraTS23-DiffUNet-roi_96-meantype_xstart-with_deno_loss-no_mse_loss/train/runs/2024-08-15_16-05-12/csv/version_0/checkpoints/epoch=299-step=37200.ckpt'
 #ckpt_path: '${paths.log_dir}/BraTS23-DiffUNet-roi_96-meantype_xstart-with_deno_loss/train/runs/2024-08-14_18-28-27/csv/version_0/checkpoints/epoch=299-step=37200.ckpt'
 #ckpt_path: /home/sanyal/Projects/BraTS3DDiff/logs/bratseg_logs/patch_diffusion/BraTS23-SwinUnetR-512-patch_tumor_classify_diffusion_roi_128_lr=0.001/train/runs/2024-09-27_18-27-30/csv/version_0/checkpoints/epoch=230-step=114576.ckpt
-ckpt_path: /home/students/sanyal/Master-Thesis/Projects/BraTS3DDiff/logs/bratseg_logs/diffusion/BraTS23-DiffUNet-roi_128-meantype_xstart/train/runs/2024-11-20_16-00-15/csv/version_0/checkpoints/epoch=299-step=297300.ckpt
+ckpt_path: /home/ca550013/Master-Thesis/Projects/BraTS3DDiff/logs/bratseg_logs/diffusion/BraTS23-DiffUNet-roi_128-meantype_xstart/train/runs/2024-11-20_16-00-15/csv/version_0/checkpoints/epoch=299-step=297300.ckpt
 # seed for random number generators in pytorch, numpy and python.random
 seed: 123

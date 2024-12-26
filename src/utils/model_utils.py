@@ -136,6 +136,58 @@ def get_timestep_quantile_losses(ts, weights, losses, num_timesteps, qt_losses_d
     return qt_losses_dict
 
 
+def compute_segmentation_metrics(
+    y_logits, y_true, C, subregions_names, prefix_key=None, suffix_key=None, thresh=0.50
+):
+    # expects non-binarized y_logits
+    # C = #subregions
+
+    y_pred = y_logits.sigmoid().gt(thresh)
+    dice_metric = DiceMetric(
+        include_background=False,
+        reduction="mean_batch",
+        get_not_nans=True,
+        ignore_empty=False,
+    )
+    # scores = {'dice':0.0,'hd95':0.0,'recall':0.0}
+
+    if prefix_key is not None:
+        if type(prefix_key) == dict:
+            # suffix_key = "key1=val1-key2=val2-"
+            prefix_key = "-".join([f"{k}={v}" for k, v in prefix_key.items()])
+        prefix_key = f"{prefix_key}-"
+    else:
+        prefix_key = ""
+
+    if suffix_key is not None:
+        if type(suffix_key) == dict:
+            # suffix_key = "-key1=val1-key2=val2"
+            suffix_key = "-".join([f"{k}={v}" for k, v in suffix_key.items()])
+        suffix_key = f"-{suffix_key}"
+    else:
+        suffix_key = ""
+
+    scores = {f"{prefix_key}dice{suffix_key}": 0.0}
+
+    for c in range(C):
+        scores[f"{prefix_key}dice_{subregions_names[c]}{suffix_key}"] = dice_metric(
+            y_pred[:, c].unsqueeze(1), y_true[:, c].unsqueeze(1)
+        ).mean()
+        # scores[f"hd95_{subregions_names[c]}"] = hausdorff_distance_95(y_pred[:, c].unsqueeze(1), y_true[:, c].unsqueeze(1))
+        # scores[f"recall_{subregions_names[c]}"] = recall(y_pred[:, c].unsqueeze(1), y_true[:, c].unsqueeze(1))
+
+        scores[f"{prefix_key}dice{suffix_key}"] += scores[
+            f"{prefix_key}dice_{subregions_names[c]}{suffix_key}"
+        ]
+        # scores[f"hd95"] += scores[f"hd95_{subregions_names[c]}"]
+        # scores[f"recall"] += scores[f"recall_{subregions_names[c]}"]
+
+    scores[f"{prefix_key}dice{suffix_key}"] /= C
+    # scores[f"hd95"] /= C
+    # scores[f"recall"] /= C
+    return scores, scores[f"{prefix_key}dice{suffix_key}"]
+
+
 
 def compute_uncer(pred_out):
     pred_out = torch.sigmoid(pred_out)
@@ -367,56 +419,7 @@ if __name__ == "__main__":
     get_nonzero_patches(patch_labels, patch_map, patch_size=8, patch_channels=1)
 
 
-def compute_segmentation_metrics(
-    y_logits, y_true, C, subregions_names, prefix_key=None, suffix_key=None, thresh=0.50
-):
-    # expects non-binarized y_logits
-    # C = #subregions
 
-    y_pred = y_logits.sigmoid().gt(thresh)
-    dice_metric = DiceMetric(
-        include_background=False,
-        reduction="mean_batch",
-        get_not_nans=True,
-        ignore_empty=False,
-    )
-    # scores = {'dice':0.0,'hd95':0.0,'recall':0.0}
-
-    if prefix_key is not None:
-        if type(prefix_key) == dict:
-            # suffix_key = "key1=val1-key2=val2-"
-            prefix_key = "-".join([f"{k}={v}" for k, v in prefix_key.items()])
-        prefix_key = f"{prefix_key}-"
-    else:
-        prefix_key = ""
-
-    if suffix_key is not None:
-        if type(suffix_key) == dict:
-            # suffix_key = "-key1=val1-key2=val2"
-            suffix_key = "-".join([f"{k}={v}" for k, v in suffix_key.items()])
-        suffix_key = f"-{suffix_key}"
-    else:
-        suffix_key = ""
-
-    scores = {f"{prefix_key}dice{suffix_key}": 0.0}
-
-    for c in range(C):
-        scores[f"{prefix_key}dice_{subregions_names[c]}{suffix_key}"] = dice_metric(
-            y_pred[:, c].unsqueeze(1), y_true[:, c].unsqueeze(1)
-        ).mean()
-        # scores[f"hd95_{subregions_names[c]}"] = hausdorff_distance_95(y_pred[:, c].unsqueeze(1), y_true[:, c].unsqueeze(1))
-        # scores[f"recall_{subregions_names[c]}"] = recall(y_pred[:, c].unsqueeze(1), y_true[:, c].unsqueeze(1))
-
-        scores[f"{prefix_key}dice{suffix_key}"] += scores[
-            f"{prefix_key}dice_{subregions_names[c]}{suffix_key}"
-        ]
-        # scores[f"hd95"] += scores[f"hd95_{subregions_names[c]}"]
-        # scores[f"recall"] += scores[f"recall_{subregions_names[c]}"]
-
-    scores[f"{prefix_key}dice{suffix_key}"] /= C
-    # scores[f"hd95"] /= C
-    # scores[f"recall"] /= C
-    return scores, scores[f"{prefix_key}dice{suffix_key}"]
 
 
 

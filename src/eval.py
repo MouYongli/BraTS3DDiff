@@ -7,6 +7,10 @@ from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig, OmegaConf
 from src.utils.custom_resolvers import list_cube
 
+import os
+
+print(os.environ["CUDA_VISIBLE_DEVICES"])
+
 OmegaConf.register_new_resolver("eval", eval)
 OmegaConf.register_new_resolver("cube", list_cube)
 
@@ -101,7 +105,7 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     return metric_dict, object_dict
 
 
-@hydra.main(version_base="1.3", config_path="../configs", config_name="eval_base.yaml")
+@hydra.main(version_base="1.3", config_path="../configs", config_name="eval.yaml")
 def main(cfg: DictConfig) -> None:
     """Main entry point for evaluation.
 

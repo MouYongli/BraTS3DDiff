@@ -1,7 +1,5 @@
-save_predicted_masks:
-  _target_: src.callbacks.predicted_masks_save_callback.PredictedMasksSaveCallBack
-  save_dir: ${hydra:runtime.output_dir}/seg_masks
 
+# callbacks:
 
 rich_progress_bar:
   _target_: lightning.pytorch.callbacks.RichProgressBar
