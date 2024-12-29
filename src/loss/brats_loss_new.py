@@ -14,8 +14,8 @@ class BraTSegLoss(nn.Module):
         return self.dice(input=pred.sigmoid(), target=true, mask=mask)
 
     def _loss_bce(self, pred, true, mask):
-        return self.bce(input=pred, target=true.float(), weight=mask)
-
+        #calculate loss only on the masked region
+        return self.bce(input=pred, target=true.float(), weight=mask) * (mask.numel() / mask.sum())
     def forward(self, pred, true, fg, prefix=None, suffix=None):
         # p:predicted seg map (logits)
         # t: true seg map (binary values)
@@ -60,7 +60,7 @@ class MultiResSegmentLoss(nn.Module):
 
         for patch_res_ in self.patch_res:
             pred = preds[patch_res_]
-            res_loss_dict, res_loss = self.loss_fn(pred, true, fg, prefix=prefix, suffix=f'res_{patch_res_}')
+            res_loss_dict, res_loss = self.loss_fn(pred, true, fg, prefix=prefix, suffix=f'res={patch_res_}')
             loss_dict[f'{prefix}_loss'] += res_loss
             loss_dict.update(res_loss_dict)
 

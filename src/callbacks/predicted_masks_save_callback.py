@@ -47,6 +47,7 @@ class PredictedMasksSaveCallBack(Callback):
         )
         ni_data = nibabel.load(im_path)
         affine, header = ni_data.affine, ni_data.header
+        
         return affine, header
     
     def save_masks(self, trainer, outputs, split="test"):

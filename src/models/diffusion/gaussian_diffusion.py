@@ -603,9 +603,9 @@ class GaussianDiffusion:
         """
 
         final = None
-        all_samples = []
-        all_model_output = []
         intermediate_samples = []
+        pred_xstarts = []
+        model_outputs = []
 
         for sample in self.ddim_sample_loop_progressive(
             model,
@@ -622,13 +622,13 @@ class GaussianDiffusion:
         ):
             final = sample
             intermediate_samples.append(sample["sample"])
-            all_samples.append(sample["pred_xstart"])
-            all_model_output.append(sample["model_output"])
-        final["intermediate_samples"] = intermediate_samples
-        final["pred_xstarts"] = all_samples
-        final["model_outputs"] = all_model_output
+            pred_xstarts.append(sample["pred_xstart"])
+            model_outputs.append(sample["model_output"])
 
-        # time.sleep(1)
+        final["intermediate_samples"] = intermediate_samples
+        final["pred_xstarts"] = pred_xstarts
+        final["model_outputs"] = model_outputs
+
         return final
 
     def ddim_sample_loop_progressive(

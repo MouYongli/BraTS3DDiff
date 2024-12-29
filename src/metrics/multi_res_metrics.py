@@ -79,10 +79,10 @@ class MultiResBaseMetrics(nn.Module):
         patch_sizes = list(metrics_dict.keys())
         metrics_names = list(metrics_dict[patch_sizes[0]].keys())
         for metric_name in metrics_names:
-            metric_name_ = f"{metric_name}_mean"
+            mean_metrics[f"{metric_name}_mean"] = 0.0
             for patch_size in patch_sizes:
-                mean_metrics[metric_name_] = mean_metrics.get(metric_name_, 0.0) + metrics_dict[patch_size][metric_name]
-            mean_metrics[metric_name_] /= len(patch_sizes)
+                mean_metrics[f"{metric_name}_mean"] += metrics_dict[patch_size][metric_name]
+            mean_metrics[f"{metric_name}_mean"] /= len(patch_sizes)
         return mean_metrics
 
     def forward(self, 
@@ -95,12 +95,15 @@ class MultiResBaseMetrics(nn.Module):
         #preds need to be logits or prob values in [0,1]
         for patch_size in self.patch_sizes:
             true = trues[patch_size] if isinstance(trues, dict) else trues
+            true = true.detach().cpu()
             pred = preds[patch_size]
             assert true.shape == pred.shape
             if self.sigmoid:
                 pred = pred.sigmoid()
+            pred = pred.detach().cpu()
             if masks is not None:
                 mask = masks[patch_size] if isinstance(masks, dict) else masks
+                mask = mask.detach().cpu()
                 pred = pred * mask
             #compute metrics
             for metric_name, metric_obj in self.metrics[patch_size].items():

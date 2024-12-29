@@ -8,7 +8,7 @@ defaults:
   - model: patch_tumor_classify_diffusion_new_optim
   - callbacks: default
   - logger: [csv] # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
-  - trainer: cpu
+  - trainer: gpu
   - paths: default
   - extras: default
   - hydra: default

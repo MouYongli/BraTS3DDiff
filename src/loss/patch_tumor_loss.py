@@ -46,10 +46,10 @@ class MultiResPatchClassifyLoss(nn.Module):
 
             for patch_res in self.patch_res:
                 # for every patch resolution
-                patch_pred = patch_preds[patch_res]
-                patch_true = patch_trues[patch_res]
+                pred = patch_preds[patch_res]
+                true = patch_trues[patch_res]
 
-                loss[f"patch_classify_bce_loss_res={patch_res}"] = self._loss_bce(patch_true, patch_true)
+                loss[f"patch_classify_bce_loss_res={patch_res}"] = self._loss_bce(pred, true)
                 loss["patch_classify_loss"] += loss[
                     f"patch_classify_bce_loss_res={patch_res}"
                 ]

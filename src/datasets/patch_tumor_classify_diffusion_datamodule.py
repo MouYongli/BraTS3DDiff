@@ -149,7 +149,7 @@ class BraTSDataset(Dataset):
                 w % patch_size == 0 and h % patch_size == 0 and d % patch_size == 0
             ), f"w, h, and d must be divisible by patch_size={patch_size}"
             if len(mask.shape) == 4:
-                mask_patch = mask.reshape(
+                mask_patch = mask.view(
                     1,
                     w // patch_size,
                     patch_size,
@@ -162,7 +162,7 @@ class BraTSDataset(Dataset):
                     patch_size * patch_size * patch_size
                 )
             elif len(mask.shape) == 5:
-                mask_patch = mask.reshape(
+                mask_patch = mask.view(
                     b,
                     1,
                     w // patch_size,
@@ -177,9 +177,9 @@ class BraTSDataset(Dataset):
                 )
 
             # label patches as tumor(1)/non-tumor(0) based on patch tumor vol frac
-            patch_tumor_vol[patch_tumor_vol > self.thresh] = 1.0
-            patch_tumor_vol[patch_tumor_vol <= self.thresh] = 0.0
-            patch_tumor_vols[patch_size] = patch_tumor_vol
+            patch_tumor_vol[patch_tumor_vol > self.thresh] = 1
+            patch_tumor_vol[patch_tumor_vol <= self.thresh] = 0
+            patch_tumor_vols[patch_size] = patch_tumor_vol.to(torch.uint8)
 
         return patch_tumor_vols
 

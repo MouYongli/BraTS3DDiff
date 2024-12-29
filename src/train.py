@@ -7,7 +7,6 @@ import torch
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig, OmegaConf
-from src.utils.custom_resolvers import list_cube
 import numpy as np
 
 OmegaConf.register_new_resolver("eval", eval)

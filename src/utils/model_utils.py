@@ -202,17 +202,20 @@ def compute_uncertainty_based_fusion(
     # Adapted from DIffUNet
     sample_return = torch.zeros(out_shape)
     for index in range(num_sample_timesteps):
+        #compute uncertainity in each timestep based on model output
         uncer_out = 0
         for i in range(uncer_step):
-            uncer_out += sample_outputs[i]["all_model_outputs"][index]
+            uncer_out += sample_outputs[i]["model_outputs"][index]
         uncer_out = uncer_out / uncer_step
         uncer = compute_uncer(uncer_out).cpu()
         w = torch.exp(
             torch.sigmoid(torch.tensor((index + 1) / num_sample_timesteps))
             * (1 - uncer)
         )
+        #final sample: 
+        #   weighted average of pred_xstarts from every timestep based on uncertainity in every timestep
         for i in range(uncer_step):
-            sample_return += w * sample_outputs[i]["all_samples"][index].cpu()
+            sample_return += w * sample_outputs[i]["pred_xstarts"][index].cpu()
 
     return sample_return
 

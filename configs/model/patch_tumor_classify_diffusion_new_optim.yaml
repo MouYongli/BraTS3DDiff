@@ -52,7 +52,7 @@ patch_emb_net:
   _target_: src.models.networks.patch_unet.patch_enc.PatchUNetEncoder
   spatial_dims: 3
   in_channels: 1
-  features: [8, 8, 16, 32, 64, 8]
+  features: [32, 32, 64, 128, 256, 32]
   act: LeakyReLU
   norm: instance
   bias: True
@@ -63,7 +63,7 @@ patch_denoise_net:
   spatial_dims: 3
   in_channels: ${eval:'${data.num_targets} + 1'}
   out_channels: ${data.num_targets}
-  features: [8, 8, 16, 32, 64, 8]
+  features: [32, 32, 64, 128, 256, 32]
   act: LeakyReLU
   norm: instance
   dropout: 0.0

@@ -468,6 +468,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
                 .sigmoid()
                 .gt(self.hparams.extra_kwargs.patch_thresh)
             )
+
             assert patch_pred_labels.shape == (B, 1, W_, H_, D_)
 
             # get patch_embeddings for the current patch_size
@@ -566,7 +567,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
 
     def on_validation_epoch_end(self):
         val_metrics = {}
-        patch_classify_metrics = self.patch_classify_metric.compute_metrics()
+        patch_classify_metrics, confmats = self.patch_classify_metric.compute_metrics()
         val_metrics.update(patch_classify_metrics)
         seg_metrics = self.segment_metric.compute_metrics()
         val_metrics.update(seg_metrics)
