@@ -16,6 +16,7 @@ class BraTSegLoss(nn.Module):
     def _loss_bce(self, pred, true, mask):
         #calculate loss only on the masked region
         return self.bce(input=pred, target=true.float(), weight=mask) * (mask.numel() / mask.sum())
+
     def forward(self, pred, true, fg, prefix=None, suffix=None):
         # p:predicted seg map (logits)
         # t: true seg map (binary values)

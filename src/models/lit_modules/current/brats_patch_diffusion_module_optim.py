@@ -2,6 +2,7 @@ import copy
 import os
 import time
 from typing import Any, Dict, Tuple
+import json
 
 import numpy as np
 import torch
@@ -108,7 +109,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         )
         self.denoising_criterion = DenoisingLoss(diffusion=self.diffusion)
         self.segment_criterion = MultiResSegmentLoss(patch_res=self.hparams.extra_kwargs.patch_sizes, 
-                                                incl_mean=True, scale_loss=0.5)
+                                                incl_mean=True, scale_loss=1./3)
 
         self.patch_classify_metric = MultiResPatchClassifyMetrics(patch_sizes=self.hparams.extra_kwargs.patch_sizes,
                                                                   sigmoid=True, thresh=self.hparams.extra_kwargs.patch_thresh)
@@ -307,7 +308,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
 
             # Add all patch locations to the batch dimension, and reshape patch 1D embeddings to 3D
             # patch_embeddings: (B,C_,W_,H_,D_) -->  (B*W_*H_,D_ x 1 x patch_emb_size x patch_emb_size x patch_emb_size)
-            patch_embeddings = get_all_patches(patch_embeddings, patch_size = patch_emb_size, patch_channels = 1)
+            patch_embeddings = get_all_patches(patch_embeddings, patch_size=patch_emb_size, patch_channels=1)
             # upsample the patch embeddings from patch_emb_size to match the patch_size resolutions,
             # and embed the upsampled patches
             patch, embeddings = self.forward(
@@ -569,6 +570,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         val_metrics = {}
         patch_classify_metrics, confmats = self.patch_classify_metric.compute_metrics()
         val_metrics.update(patch_classify_metrics)
+        log.info(f"Confmats: {json.dumps(confmats)}")
         seg_metrics = self.segment_metric.compute_metrics()
         val_metrics.update(seg_metrics)
         self.log_scores(val_metrics, prefix="val", on_epoch=True, prog_bar=True)
@@ -597,6 +599,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         dur = time.time() - start_time
         log.info(f"One test step with {image.shape} images took {dur:0.4f} secs")
         return pred_seg_masks, file_id
+
 
 
     def on_test_epoch_end(self):

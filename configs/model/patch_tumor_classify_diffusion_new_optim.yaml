@@ -43,7 +43,7 @@ patch_up_net:
       spatial_dims: 3
       in_chns: 1
       out_chns: 1
-    - _target_: src.models.networks.patch_unet.ups.Up8to32
+    - _target_: src.models.networks.patch_unet.ups.Up8to32_2
       spatial_dims: 3
       in_chns: 1
       out_chns: 1
