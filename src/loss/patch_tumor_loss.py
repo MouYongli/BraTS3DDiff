@@ -19,7 +19,7 @@ class MultiResPatchClassifyLoss(nn.Module):
         return self.bce(p, y.float())
 
     def forward(self, patch_preds:dict[torch.Tensor], patch_trues:dict[torch.Tensor]):
-        assert len(patch_preds) == len(patch_trues) == len(self.patch_res) > 1
+        #assert len(patch_preds) == len(patch_trues) == len(self.patch_res)
 
         # num_channels==1
         assert (

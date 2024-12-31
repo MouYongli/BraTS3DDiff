@@ -142,7 +142,7 @@ class PatchUpsample(nn.Module):
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.in_sizes = dict(zip(out_sizes, in_sizes))
-        module_names = [f"ups_{in_size}_to_{out_size}" for in_size, out_size in zip(in_sizes, out_sizes)]
+        module_names = [f"up_{in_size}_to_{out_size}" for in_size, out_size in zip(in_sizes, out_sizes)]
         self.ups = nn.ModuleDict(dict(zip(module_names, ups)))
         self.module_names = dict(zip(out_sizes, module_names))
 
