@@ -22,8 +22,8 @@
 # Shell script that you want to execute
 cmd = /home/students/sanyal/Master-Thesis/Projects/BraTS3DDiff/condor_jobs/train_script.sh
 
-# command line arguments
-args =
+## command line arguments
+#args =
 
 # start directory
 initialdir = /home/students/sanyal/Master-Thesis/Projects/BraTS3DDiff
@@ -48,12 +48,10 @@ on_exit_hold = (ExitBySignal == True) || (ExitCode != 0)
 
 
 ## A nice job will note change your priority. You can use this statement when you have enough time to wait for your results
-
 nice_user = True
 
 # Attention: You can only set one requirement line. Add more requirements by using && e.g.
-#
-# requirements = (CUDAGlobalMemoryMb > 25000) && (CUDAGlobalMemoryMb < 40000) && POOL =="cluster"
+requirements = (CUDAGlobalMemoryMb > 26000) && (CUDAGlobalMemoryMb < 40000) && POOL =="cluster"
 
 
 # required number of CPU cores
@@ -63,11 +61,11 @@ request_cpus = 2
 request_gpus = 1
 
 # required CPU RAM
-request_memory = 20 GB
+request_memory = 40 GB
 
 # required Disk space
 
-request_disk = 20 GB
+request_disk = 40 GB
 
 # criterion after which to choose the machine
 # e.g. `rank = memory` takes machine with largest RAM

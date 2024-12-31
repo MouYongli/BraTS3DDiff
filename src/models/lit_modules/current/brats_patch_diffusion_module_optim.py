@@ -344,7 +344,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
             )
             # Reshape denoise_out_patch to get the window level denoise_out
             # (B*W_*H_,D_,C,patch_size,patch_size,patch_size) -> (B,C,W,H,D)
-            denoise_out = patches2window(denoise_out_patch,win_size=(W,H,D))
+            denoise_out = patches2window(denoise_out_patch, win_size=(W,H,D))
 
             # denoising loss on the entire window
             deno_loss = self.denoising_criterion(
@@ -568,6 +568,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
     def on_validation_epoch_end(self):
         val_metrics = {}
         patch_classify_metrics, confmats = self.patch_classify_metric.compute_metrics()
+        self.log('confmats ', confmats)
         val_metrics.update(patch_classify_metrics)
         seg_metrics = self.segment_metric.compute_metrics()
         val_metrics.update(seg_metrics)
