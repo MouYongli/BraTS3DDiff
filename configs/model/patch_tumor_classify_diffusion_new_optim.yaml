@@ -28,14 +28,14 @@ patchify_net:
   spatial_dims: 3
   downsample: "merging"
   use_v2: False
-  final_patch_sizes: ${data.patch_sizes}
+  final_patch_sizes: [16, 32]
   final_patch_emb_sizes: [216, 512]
   pred_mode: "classify"
 
 patch_up_net:
   _target_: src.models.networks.patch_unet.patch_enc.PatchUpsample
-  in_sizes: ${model.extra_kwargs.patch_emb_sizes}
-  out_sizes: ${data.patch_sizes}
+  in_sizes: [6, 8]
+  out_sizes: [16, 32]
   in_channels: 1
   out_channels: 1
   ups:

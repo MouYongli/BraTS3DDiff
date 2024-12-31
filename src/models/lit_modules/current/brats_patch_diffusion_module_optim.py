@@ -3,7 +3,6 @@ import os
 import time
 from typing import Any, Dict, Tuple
 import json
-
 import numpy as np
 import torch
 from lightning import LightningModule
@@ -116,7 +115,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
 
         self.segment_metric = MultiResSegmentMetrics(patch_sizes=self.hparams.extra_kwargs.patch_sizes, incl_mean=True,
                                                      channels=self.hparams.extra_kwargs.subregions_names,
-                                                     sigmoid=True, thresh=0.5)
+                                                     sigmoid=False, thresh=1./3)
 
         # self.automatic_optimization = False
 
@@ -291,7 +290,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         loss_dict.update(patches_classify_loss_dict)
 
         patch_sizes = self.hparams.extra_kwargs.patch_sizes
-        assert len(patch_sizes) == 2
+        #assert len(patch_sizes) == 2
         pred_seg_masks = {}
         masked_pred_seg_masks = {}
 
@@ -369,6 +368,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
             # reshape predicted mask patches to get the window mask
             ## (B*W_*H_,D_,C,patch_size,patch_size,patch_size) -> (B,C,W,H,D)
             pred_mask = patches2window(pred_mask_patch, win_size = (W, H, D))
+            pred_mask = pred_mask.sigmoid()
             pred_seg_masks[patch_size] = pred_mask
 
             # Scale the predicted segmentation mask using the patch pred tumor labels and then compute seg loss
@@ -520,10 +520,11 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
                 # fill in the zero tensor pred_mask created before, at the tumor patch locations
                 #  with the corresponding predicted mask patches
                 pred_mask = fill_in_window_with_patches(pred_mask, patch_pred_labels, pred_tumor_mask_patch)
+                pred_mask = pred_mask.sigmoid()
 
             pred_masks[patch_size] = pred_mask
 
-        # Mean of mask window predictions using all the
+        # Mean of mask window predictions using all the patch sizes
         mean_pred_mask = torch.stack(list(pred_masks.values())).mean(dim=0)
         pred_masks['mean'] = mean_pred_mask
 
@@ -593,13 +594,12 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         self.segment_metric(preds=pred_seg_masks, trues=mask, masks=foreground)
 
         for key in pred_seg_masks.keys():
-            pred_mask = pred_seg_masks[key].sigmoid().gt(0.5)
+            pred_mask = pred_seg_masks[key].gt(0.5)
             pred_seg_masks[key] = pred_mask * foreground
 
         dur = time.time() - start_time
         log.info(f"One test step with {image.shape} images took {dur:0.4f} secs")
         return pred_seg_masks, file_id
-
 
 
     def on_test_epoch_end(self):
@@ -617,7 +617,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         image, foreground = data["image"], data["foreground"]
         pred_seg_masks = self.inferer(inputs=image, network=self.predict_seg_mask)
         for key in pred_seg_masks.keys():
-            pred_mask = pred_seg_masks[key].sigmoid().gt(0.5)
+            pred_mask = pred_seg_masks[key].gt(0.5)
             pred_seg_masks[key] = pred_mask * foreground
         return pred_seg_masks, file_ids
 

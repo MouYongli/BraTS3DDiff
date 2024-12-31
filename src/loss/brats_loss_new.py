@@ -7,18 +7,18 @@ class BraTSegLoss(nn.Module):
     def __init__(self, scale_loss:float=1.0):
         super().__init__()
         self.dice = MaskedDiceLoss(sigmoid=False)
-        self.bce = F.binary_cross_entropy_with_logits
+        self.bce = F.binary_cross_entropy
         self.scale_loss = scale_loss
 
     def _loss_dice(self, pred, true, mask):
-        return self.dice(input=pred.sigmoid(), target=true, mask=mask)
+        return self.dice(input=pred, target=true, mask=mask)
 
     def _loss_bce(self, pred, true, mask):
         #calculate loss only on the masked region
         return self.bce(input=pred, target=true.float(), weight=mask) * (mask.numel() / mask.sum())
 
     def forward(self, pred, true, fg, prefix=None, suffix=None):
-        # p:predicted seg map (logits)
+        # p:predicted seg map (probability values)
         # t: true seg map (binary values)
         #fg: brain foreground mask
         assert pred.shape == true.shape 

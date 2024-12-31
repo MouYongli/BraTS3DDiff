@@ -1,0 +1,39 @@
+_target_: src.models.lit_modules.current.patch_tumor_classify_module.PatchTumorClassifyLitModule
+optimizer:
+  _target_: torch.optim.AdamW
+  _partial_: true
+  lr: 1e-4
+  weight_decay: 1e-3
+
+scheduler:
+  _target_: src.scheduler.lr_scheduler.LinearWarmupCosineAnnealingLR
+  _partial_: true
+  warmup_epochs: 30
+  max_epochs: ${trainer.max_epochs}
+
+net:
+  _target_: src.models.networks.swinunetr.swinunetr_enc_new.SwinUNETREnc128
+  img_size: ${data.roi_size}
+  in_channels: ${data.num_modalities}
+  out_channels: 1
+  depths: [2, 4, 2, 2]
+  num_heads: [3, 6, 12, 24]
+  feature_size: 24
+  norm_name: "instance"
+  drop_rate: 0.0
+  attn_drop_rate: 0.0
+  dropout_path_rate: 0.0
+  normalize: True
+  use_checkpoint: False
+  spatial_dims: 3
+  downsample: "merging"
+  use_v2: False
+  final_patch_sizes: ${data.patch_sizes}
+  final_patch_emb_sizes: [216, 512]
+  pred_mode: "classify"
+
+
+extra_kwargs:
+  patch_sizes: ${data.patch_sizes}
+  patch_thresh: 0.70
+  

@@ -7,7 +7,7 @@ defaults:
   - data: brats23_patch_tumor_classify_diffusion
   - model: patch_tumor_classify_diffusion_new_optim
   - callbacks: default
-  - logger: [csv] # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
+  - logger: [csv, wandb] # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
   - trainer: gpu
   - paths: default
   - extras: default
@@ -30,7 +30,7 @@ defaults:
 # task name, determines output directory path
 task_name: "train"
 
-task_tag: "BraTS23-Patch-Diffusion-Optimised_TEST"
+task_tag: "BraTS23-Patch-Diffusion-Optim-Test"
 
 # tags to help you identify your experiments
 # you can overwrite this in experiment configs
