@@ -115,7 +115,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
 
         self.segment_metric = MultiResSegmentMetrics(patch_sizes=self.hparams.extra_kwargs.patch_sizes, incl_mean=True,
                                                      channels=self.hparams.extra_kwargs.subregions_names,
-                                                     sigmoid=False, thresh=1./3)
+                                                     sigmoid=False, thresh=0.5)
 
         # self.automatic_optimization = False
 
@@ -570,9 +570,8 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
     def on_validation_epoch_end(self):
         val_metrics = {}
         patch_classify_metrics, confmats = self.patch_classify_metric.compute_metrics()
-        self.log('confmats ', confmats)
-        val_metrics.update(patch_classify_metrics)
         log.info(f"Confmats: {json.dumps(confmats)}")
+        val_metrics.update(patch_classify_metrics)
         seg_metrics = self.segment_metric.compute_metrics()
         val_metrics.update(seg_metrics)
         self.log_scores(val_metrics, prefix="val", on_epoch=True, prog_bar=True)
@@ -647,6 +646,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
             #self.patch_denoise_net = torch.compile(self.patch_denoise_net)
             pass
 
+
     def configure_optimizers(self) -> Dict[str, Any]:
         """Choose what optimizers and learning-rate schedulers to use in your optimization.
         Normally you'd need one. But in the case of GANs or similar you might have multiple.
@@ -663,7 +663,6 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
                 "optimizer": optimizer,
                 "lr_scheduler": {
                     "scheduler": scheduler,
-                    "monitor": "val/loss",
                     "interval": "epoch",
                     "frequency": 1,
                 },
