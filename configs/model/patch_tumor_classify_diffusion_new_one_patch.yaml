@@ -1,4 +1,4 @@
-_target_: src.models.lit_modules.current.brats_patch_diffusion_module_optim.BraTSPatchTumorDiffusionLitModule
+_target_: src.models.lit_modules.current.brats_patch_diffusion_module_one_patch_different_noise.BraTSPatchTumorDiffusionLitModule
 optimizer:
   _target_: torch.optim.AdamW
   _partial_: true
@@ -12,7 +12,7 @@ scheduler:
   max_epochs: ${trainer.max_epochs}
 
 patchify_net:
-  _target_: src.models.networks.swinunetr.swinunetr_enc_new.SwinUNETREnc128
+  _target_: src.models.networks.swinunetr.swinunetr_enc_1x1_conv.SwinUNETREnc128
   img_size: ${data.roi_size}
   in_channels: ${data.num_modalities}
   out_channels: 1
@@ -28,22 +28,18 @@ patchify_net:
   spatial_dims: 3
   downsample: "merging"
   use_v2: False
-  final_patch_sizes: [16, 32]
-  final_patch_emb_sizes: [216, 512]
+  final_patch_sizes: [16]
+  final_patch_emb_sizes: [216]
   clamp_out: false
 
 patch_up_net:
   _target_: src.models.networks.patch_unet.patch_enc.PatchUpsample
-  in_sizes: [6, 8]
-  out_sizes: [16, 32]
+  in_sizes: [6]
+  out_sizes: [16]
   in_channels: 1
   out_channels: 1
   ups:
     - _target_: src.models.networks.patch_unet.ups.Up6to16
-      spatial_dims: 3
-      in_chns: 1
-      out_chns: 1
-    - _target_: src.models.networks.patch_unet.ups.Up8to32_2
       spatial_dims: 3
       in_chns: 1
       out_chns: 1
@@ -94,7 +90,7 @@ extra_kwargs:
   sampling_type: ddim_sample_uncer_aware
   uncer_step: 4
   patch_sizes: ${data.patch_sizes}
-  patch_emb_sizes: [6, 8]
+  patch_emb_sizes: [6]
   patch_thresh: 0.70
   subregions_names: ["WT", "TC", "ET"]
 

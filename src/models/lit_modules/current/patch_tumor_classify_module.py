@@ -4,9 +4,9 @@ import json
 import torch
 from lightning.pytorch import LightningModule
 
-from src.loss.patch_tumor_loss import MultiResPatchClassifyLoss
+from src.loss.patch_classify_loss import MultiResPatchClassifyLoss
 from src.metrics.multi_res_metrics import MultiResPatchClassifyMetrics
-from src.models.networks.swinunetr.swinunetr_enc_new import SwinUNETREnc128
+from src.models.networks.swinunetr.swinunetr_enc_1x1_conv import SwinUNETREnc128
 
 from src.utils import RankedLogger
 

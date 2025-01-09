@@ -9,7 +9,7 @@ from einops import repeat, rearrange, reduce
 
 from src.loss.brats_loss import BraTSLoss
 
-from src.loss.patch_tumor_loss import PatchTumorLoss
+from Projects.BraTS3DDiff.src.loss.patch_classify_loss import PatchTumorLoss
 from monai.inferers import SlidingWindowInferer
 from src.models.utils.utils import compute_subregions_pred_metrics
 import torchmetrics

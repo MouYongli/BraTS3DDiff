@@ -14,8 +14,8 @@ labels:
   ET: 3
 
 subregions:
-  - region: WT
-    labels: NCR+ED+ET
+  - region: WT 
+    labels: NCR+ET+ED
   - region: TC
     labels: NCR+ET
   - region: ET

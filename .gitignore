@@ -318,6 +318,8 @@ configs/local/default.yaml
 
 #synapse access and config
 configs/synapse/*
+configs/paths/*
+
 ./synapse_auth_keys/*
 
 rwth_hpc_slurm/log/*

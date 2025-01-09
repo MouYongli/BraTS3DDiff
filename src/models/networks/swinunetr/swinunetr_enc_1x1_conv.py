@@ -133,6 +133,7 @@ class SwinUNETREnc128(nn.Module):
 
         assert img_size == (128, 128, 128), "Input image size must be equal to (128, 128, 128)."
         assert set(final_patch_sizes).issubset({16, 32})
+        assert len(final_patch_sizes) == len(final_patch_emb_sizes)
 
         self.clamp_out = clamp_out
         self.final_patch_sizes = final_patch_sizes
@@ -179,14 +180,16 @@ class SwinUNETREnc128(nn.Module):
             ),
             use_v2=use_v2,
         )
-        
 
+        #upsample patch feature maps using 1x1 conv
+        #then another 1x1 conv to reduce num of feature maps to 1
+        #using 1x1 convs reduces num of params, but increases GPU memory consumption (why ?)
         if 16 in self.final_patch_sizes:
             self.encoder3 = UnetrBasicBlock(
                 spatial_dims=spatial_dims,
                 in_channels=8 * feature_size,
                 out_channels=final_patch_emb_sizes[0],
-                kernel_size=3,
+                kernel_size=1,
                 stride=1,
                 norm_name=norm_name,
                 res_block=True,
@@ -203,7 +206,7 @@ class SwinUNETREnc128(nn.Module):
                 spatial_dims=spatial_dims,
                 in_channels=16 * feature_size,
                 out_channels=final_patch_emb_sizes[1],
-                kernel_size=3,
+                kernel_size=1,
                 stride=1,
                 norm_name=norm_name,
                 res_block=True,

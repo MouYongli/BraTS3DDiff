@@ -3,7 +3,7 @@
 # you can replace it with "." if you want the root to be the current working directory
 
 
-root_dir: "/home/students/sanyal/Master-Thesis/Projects/BraTS3DDiff"
+root_dir: "/home/ca550013/Master-Thesis/Projects/BraTS3DDiff"
 
 
 # path to data directory
@@ -11,7 +11,7 @@ data_dir: ${paths.root_dir}/data/
 
 # path to logging directory
 #log_dir: ${paths.root_dir}/logs/
-log_dir: ${paths.root_dir}/logs/bratseg_logs/patch_classify
+log_dir: ${paths.root_dir}/logs/bratseg_logs/patch_diffusion
 
 # path to output directory, created dynamically by hydra
 # path generation pattern is specified in `configs/hydra/default.yaml`

@@ -220,6 +220,21 @@ def compute_uncertainty_based_fusion(
     return sample_return
 
 
+def add_background_test(orig_img:torch.Tensor, fg_crop:torch.Tensor, fg_start:Sequence[int], fg_end:Sequence[int]):
+    img_with_bg = torch.zeros_like(orig_img)
+    img_with_bg[:,fg_start[0]: fg_end[0], fg_start[1]: fg_end[1], fg_start[2]: fg_end[2]] = fg_crop
+    assert torch.all(img_with_bg==orig_img)
+    return img_with_bg
+
+def add_background(fg:torch.Tensor, orig_img_shape:Sequence[int], fg_start:Sequence[int], fg_end:Sequence[int]):
+    img_with_bg = torch.zeros(orig_img_shape).to(fg)
+    img_with_bg[:,fg_start[0]: fg_end[0], fg_start[1]: fg_end[1], fg_start[2]: fg_end[2]] = fg
+    return img_with_bg
+
+def add_background_batch(fg:torch.Tensor, orig_img_shape:Sequence[int], fg_start:Sequence[int], fg_end:Sequence[int]):
+    assert fg.shape[0] == 1
+    return add_background(fg.squeeze(0), orig_img_shape, fg_start, fg_end).unsqueeze(0)
+
 
 
 
@@ -299,6 +314,28 @@ def expand_patches(patch_labels, patch_size=16, patch_channels=3):
     return patch_labels
 
 
+def get_all_patches_1D(patch_map):
+    '''
+    Reshape a tensor of patch features so that all patches get added in the batch dimension 
+    Output: Batch of 3D patches
+    Args:
+        patch_map: 3D tensor of patch features (shape: B,C_,W_,H_,D_))
+                (W_,H_,D_) indexes the patch location and C_ corresponds to the 1D feature of every patch
+    Returns:
+        patches: A batch of 3D patches (N, C_),
+                where N=num of patches=(B*W_*H_*D_)
+    '''
+
+    B, C_, W_, H_, D_ = patch_map.shape
+    patches = (
+        patch_map.permute(0, 2, 3, 4, 1)
+        .contiguous()
+        .view(-1, C_)
+    )
+    n_patches = B * W_ * H_ * D_
+    assert patches.shape[0] == n_patches
+    return patches
+
 
 def get_all_patches(patch_map, patch_size=8, patch_channels=1):
     '''
@@ -318,12 +355,9 @@ def get_all_patches(patch_map, patch_size=8, patch_channels=1):
     B, C_, W_, H_, D_ = patch_map.shape
     assert C_ == patch_channels*(patch_size**3)
     patches = (
-        patch_map.permute(0, 2, 3, 4, 1)
-        .contiguous()
+        get_all_patches_1D(patch_map)
         .view(-1, patch_channels, patch_size, patch_size, patch_size)
     )
-    n_patches = B * W_ * H_ * D_
-    assert patches.shape[0] == n_patches
     return patches
 
 def get_zero_patches(patch_labels, patch_map, patch_size=8, patch_channels=1):

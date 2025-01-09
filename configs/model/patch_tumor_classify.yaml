@@ -12,7 +12,7 @@ scheduler:
   max_epochs: ${trainer.max_epochs}
 
 net:
-  _target_: src.models.networks.swinunetr.swinunetr_enc_new.SwinUNETREnc128
+  _target_: src.models.networks.swinunetr.swinunetr_enc_1x1_conv.SwinUNETREnc128
   img_size: ${data.roi_size}
   in_channels: ${data.num_modalities}
   out_channels: 1
@@ -28,9 +28,9 @@ net:
   spatial_dims: 3
   downsample: "merging"
   use_v2: False
-  final_patch_sizes: ${data.patch_sizes}
+  final_patch_sizes: [16, 32]
   final_patch_emb_sizes: [216, 512]
-  pred_mode: "classify"
+  clamp_out: false
 
 
 extra_kwargs:
