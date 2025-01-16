@@ -3,7 +3,7 @@
 # you can replace it with "." if you want the root to be the current working directory
 
 
-root_dir: "/home/ca550013/Master-Thesis/Projects/BraTS3DDiff"
+root_dir: "/home/students/sanyal/Master-Thesis/Projects/BraTS3DDiff"
 
 
 # path to data directory

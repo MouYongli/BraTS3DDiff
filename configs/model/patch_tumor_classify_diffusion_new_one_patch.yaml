@@ -1,4 +1,4 @@
-_target_: src.models.lit_modules.current.brats_patch_diffusion_module_one_patch_different_noise.BraTSPatchTumorDiffusionLitModule
+_target_: src.models.lit_modules.current.brats_patch_diffusion_module-one_patch-different_noise.BraTSPatchTumorDiffusionLitModule
 optimizer:
   _target_: torch.optim.AdamW
   _partial_: true
@@ -82,7 +82,7 @@ inferer:
   _target_: monai.inferers.SlidingWindowInferer
   roi_size: ${data.roi_size}
   sw_batch_size: 2
-  overlap: 0.25
+  overlap: 0.75
 
 extra_kwargs:
   num_targets: ${data.num_targets}

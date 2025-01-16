@@ -52,7 +52,7 @@ on_exit_hold = (ExitBySignal == True) || (ExitCode != 0)
 nice_user = True
 
 # Attention: You can only set one requirement line. Add more requirements by using && e.g.
-requirements = (CUDAGlobalMemoryMb > 20000) && (CUDAGlobalMemoryMb < 30000) && POOL =="cluster"
+requirements = (CUDAGlobalMemoryMb > 11000) && POOL =="cluster"
 
 
 # required number of CPU cores
@@ -62,15 +62,15 @@ request_cpus = 2
 request_gpus = 1
 
 # required CPU RAM
-request_memory = 40 GB
+request_memory = 30 GB
 
 # required Disk space
 
-request_disk = 40 GB
+request_disk = 100 GB
 
 # criterion after which to choose the machine
 # e.g. `rank = memory` takes machine with largest RAM
-# rank = memory
+rank = memory
 
 # number of seconds to wait before executing job 
 # deferral_time = (CurrentTime + 1)

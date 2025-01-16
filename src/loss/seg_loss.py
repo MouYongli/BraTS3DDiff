@@ -54,6 +54,7 @@ class MultiResSegmentLoss(nn.Module):
     def __init__(self, patch_res:list=[16, 32], incl_mean:bool=True, scale_loss:float=1.0, dice_batch=False):
         super().__init__()
         self.loss_fn = BraTSegLoss(scale_loss=1.0,dice_batch=dice_batch)
+        patch_res = [str(x) for x in patch_res]
         if incl_mean:
             patch_res = patch_res + ['mean']
         self.patch_res = patch_res

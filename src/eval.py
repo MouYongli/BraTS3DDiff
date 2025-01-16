@@ -9,7 +9,7 @@ from src.utils.custom_resolvers import list_cube
 
 import os
 
-print(os.environ["CUDA_VISIBLE_DEVICES"])
+#print(os.environ["CUDA_VISIBLE_DEVICES"])
 
 OmegaConf.register_new_resolver("eval", eval)
 OmegaConf.register_new_resolver("cube", list_cube)

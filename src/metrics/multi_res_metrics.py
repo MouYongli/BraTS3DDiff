@@ -154,6 +154,7 @@ class MultiResSegmentMetrics(MultiResBaseMetrics):
         self.default_metrics_names = ['dice']
         if metrics_names is None:
             metrics_names=self.default_metrics_names
+        patch_sizes = [str(x) for x in patch_sizes]
         if incl_mean:
             patch_sizes = patch_sizes + ['mean']
         super().__init__(metrics_names=metrics_names,
@@ -214,6 +215,7 @@ class MultiResPatchClassifyMetrics(MultiResBaseMetrics):
         main_metrics = set(metrics_names).difference(self.confmat_metrics_names)
         main_metrics.add('confmat') #{'confmat','auc','ap'}
 
+        patch_sizes = [str(x) for x in patch_sizes]
         super().__init__(metrics_names=main_metrics,
                          task_name='patch_classify',
                          patch_sizes=patch_sizes,

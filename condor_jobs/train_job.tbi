@@ -44,18 +44,18 @@ environment   = "working_dir=/home/staff/USERNAME/SUBDIR data_dir=/home/staff/US
 
 # If your job quits with an exit codes other then 0 (that means an error occured) it will be held. Without this it will be cancelled.
 
-on_exit_hold = (ExitBySignal == True) || (ExitCode != 0)
+#on_exit_hold = (ExitBySignal == True) || (ExitCode != 0)
 
 
 ## A nice job will note change your priority. You can use this statement when you have enough time to wait for your results
 nice_user = True
 
 # Attention: You can only set one requirement line. Add more requirements by using && e.g.
-requirements = (CUDAGlobalMemoryMb > 24000) && POOL =="cluster"
+requirements = (CUDAGlobalMemoryMb > 13000) && POOL =="cluster"
 
 
 # required number of CPU cores
-request_cpus = 2
+request_cpus = 1
 
 # required number of GPUs
 request_gpus = 1
@@ -69,7 +69,7 @@ request_disk = 40 GB
 
 # criterion after which to choose the machine
 # e.g. `rank = memory` takes machine with largest RAM
-# rank = memory
+#rank = memory
 
 # number of seconds to wait before executing job 
 # deferral_time = (CurrentTime + 1)

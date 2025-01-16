@@ -297,7 +297,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         patch_size = self.patch_sizes[0]
         patch_emb_size = self.patch_emb_sizes[0]
 
-        patch_embeddings = patches_embeddings[patch_size]
+        patch_embeddings = patches_embeddings[str(patch_size)]
         B, C_, W_, H_, D_ = patch_embeddings.shape
         assert (
             (C_ == patch_emb_size**3)
@@ -362,17 +362,17 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         )
 
         pred_mask_patch = pred_mask_patch.sigmoid()
-        pred_seg_masks[patch_size] = pred_mask_patch
+        pred_seg_masks[str(patch_size)] = pred_mask_patch
 
         # Scale the predicted segmentation mask using the patch pred tumor labels and then compute seg loss
         ## Eg. If pred_mask patch has a tumor region but if the corresponding patch tumor prob is low, 
         # the patchify_net gets a penalty since it should have predicted tumor with a high probabilty (penalises false negatives)
         # Expand shape of patch_pred_labels so that it matches the shape of pred_mask
         # patch_pred_labels (B,1,W_,H_,D_) ->  (B*W_*H_*D_ , 1, 1, 1, 1)
-        patch_pred_labels = patches_pred_labels[patch_size].sigmoid()
+        patch_pred_labels = patches_pred_labels[str(patch_size)].sigmoid()
         patch_pred_labels = get_all_patches(patch_pred_labels, 1, 1)
         masked_pred_mask_patch = patch_pred_labels * pred_mask_patch
-        masked_pred_seg_masks[patch_size] = masked_pred_mask_patch
+        masked_pred_seg_masks[str(patch_size)] = masked_pred_mask_patch
 
         #Compute losses
         seg_loss = self.segment_criterion(pred_seg_masks, mask_patch)
@@ -450,7 +450,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         # filter tumor patch locations using patches_pred_labels and generate masks only for these patch locations
         # binarize patch tumor predictions
         patch_pred_labels = (
-            patches_pred_labels[patch_size]
+            patches_pred_labels[str(patch_size)]
             .sigmoid()
             .gt(self.hparams.extra_kwargs.patch_thresh)
         )
@@ -458,7 +458,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         assert patch_pred_labels.shape == (B, 1, W_, H_, D_)
 
         # get patch_embeddings for the current patch_size
-        patch_embeddings = patches_embeddings[patch_size]
+        patch_embeddings = patches_embeddings[str(patch_size)]
         assert patch_embeddings.shape == (B, C_, W_, H_, D_)
 
         #filter patch_embeddings using the predicted patch labels to get the tumor_patch_embeddings
@@ -507,7 +507,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
             pred_mask = fill_in_window_with_patches(pred_mask, patch_pred_labels, pred_tumor_mask_patch)
             pred_mask = pred_mask.sigmoid()
 
-        pred_masks[patch_size] = pred_mask
+        pred_masks[str(patch_size)] = pred_mask
 
         if ret_patch_labels:
             return pred_masks, patches_pred_labels
@@ -586,13 +586,18 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
 
 
     def predict_step(self, batch):
-        data, file_id, orig_img_shape = batch
+        start_time = time.time()
+
+        data, file_id, orig_mask_shape = batch
         image, fg_start, fg_end = data["image"], data['foreground_start_coord'], data['foreground_end_coord']
         pred_seg_masks = self.inferer(inputs=image, network=self.predict_seg_mask)
 
         for key in pred_seg_masks.keys():
             pred_seg_mask = pred_seg_masks[key].gt(0.5)
-            pred_seg_masks[key] = add_background_batch(pred_seg_mask, orig_img_shape, fg_start, fg_end)
+            pred_seg_masks[key] = add_background_batch(pred_seg_mask, orig_mask_shape, fg_start, fg_end)
+
+        dur = time.time() - start_time
+        log.info(f"One predict step with {image.shape} images took {dur:0.4f} secs")
 
         return pred_seg_masks, file_id
 

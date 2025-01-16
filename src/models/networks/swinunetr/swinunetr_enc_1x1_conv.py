@@ -300,8 +300,8 @@ class SwinUNETREnc128(nn.Module):
             if self.clamp_out:
                 x_3_out = torch.clamp(x_3_out, 0, 1)
 
-            ret['embeddings'][16] = x_3
-            ret['labels'][16] = x_3_out
+            ret['embeddings']['16'] = x_3
+            ret['labels']['16'] = x_3_out
 
         if 32 in self.final_patch_sizes:
             x_4 = self.encoder4(hidden_states_out[4])
@@ -311,8 +311,8 @@ class SwinUNETREnc128(nn.Module):
             if self.clamp_out:
                 x_4_out = torch.clamp(x_4_out, 0, 1)
 
-            ret['embeddings'][32] = x_4
-            ret['labels'][32] = x_4_out
+            ret['embeddings']['32'] = x_4
+            ret['labels']['32'] = x_4_out
 
         return ret
 

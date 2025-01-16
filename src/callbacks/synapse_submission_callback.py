@@ -179,15 +179,15 @@ class SynapseSubmissionCallBack(Callback):
 
 
 if __name__ == "__main__":
-    auth_file = "/home/sanyal/Projects/BraTS3DDiff/synapse_auth_keys/auth_key_rsanyal419_gmail.txt"
-    syn_proj_id = "syn62281290"
-    pred_labels_path = "/home/sanyal/Projects/BraTS3DDiff/logs/bratseg_logs/bratseg_baselines/BraTS23-SwinUNETR_baseline_0/predict/runs/2024-08-20_21-39-43/seg_masks"
+    auth_file = "/home/students/sanyal/Master-Thesis/Projects/BraTS3DDiff/synapse_auth_keys/auth_key_sritabrata_gmail.txt"
+    syn_proj_id = "syn61532216"
+    pred_labels_path = "/home/students/sanyal/Master-Thesis/Projects/BraTS3DDiff/logs/bratseg_logs/patch_diffusion/BraTS23-PatchDiffusion-PatchSize=16-PatchesNoise=Different/predict/runs/2025-01-12_16-02-32/seg_masks/16"
     eval_images_path = (
-        "/home/sanyal/Projects/BraTS3DDiff/data/BraTS-Data/BraTS2023-GLI/test"
+        "/home/students/sanyal/Master-Thesis/Projects/BraTS3DDiff/data/BraTS-Data/BraTS2023-GLI/test"
     )
     syn_eval_id = "9615339"
     now = datetime.now()
-    zip_file_name = f"BraTS23-SwinUNETR_baseline_0_{now:%Y-%m-%d}_{now:%H-%M-%S}"
+    zip_file_name = f"BraTS23-PatchDiffusion-PatchSize_16-PatchesNoise_Different-sw_overlap_0.5"
     name = zip_file_name
     team = None
     syn_subm = SynapseSubmissionCallBack(

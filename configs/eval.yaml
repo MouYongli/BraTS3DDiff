@@ -5,11 +5,11 @@
 defaults:
   - _self_
   - data: brats23_patch_tumor_classify_diffusion_new
-  - model: patch_tumor_classify_diffusion_new_onepatchsize
-  - synapse: syn_acc_rsanyal419_gmail
+  - model: patch_tumor_classify_diffusion_new_one_patch
+  - synapse: syn_acc_sritabrata_gmail
   - callbacks: default
   ## set logger here or use command line (e.g. `python train.py logger=tensorboard`)
-  - logger: [csv]
+  - logger: [csv, wandb]
   #- logger: null
   - trainer: gpu
   - paths: default
@@ -31,9 +31,9 @@ defaults:
   - debug: null
 
 # task name, determines output directory path
-task_name: "validate"
+task_name: "predict"
 
-task_tag: "BraTS23-Patch-Diffusion-Patch=16-Test"
+task_tag: "BraTS23-PatchDiffusion-PatchSize_16-PatchesNoise_Different"
 
 # tags to help you identify your experiments
 # you can overwrite this in experiment configs
@@ -45,15 +45,14 @@ time: ${now:%Y-%m-%d}_${now:%H-%M-%S}
 # set False to skip model training
 train: False
 
-validate: True
+validate: False
 # evaluate on test set, using best model weights achieved during training
 # lightning chooses best weights based on the metric specified in checkpoint callback
 test: False
 
-predict: False
+predict: True
 
-ckpt_path:
-
+ckpt_path: ${paths.log_dir}/BraTS23-PatchDiffusion-PatchSize_16-PatchesNoise_Different/train/runs/2025-01-10_00-13-13/csv/version_0/checkpoints/epoch=279-step=277480.ckpt
 # simply provide checkpoint path to resume training
 #ckpt_path: '${paths.log_dir}/BraTS23-nnUNET_baseline_0/train/runs/2024-08-08_13-23-09/csv/version_0/checkpoints/epoch=82-step=10292.ckpt'
 ##ckpt_path: '${paths.log_dir}/BraTS23-SwinUNETR_baseline_0/train/runs/2024-08-08_17-26-44/csv/version_0/checkpoints/epoch=70-step=17608.ckpt'

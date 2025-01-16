@@ -233,7 +233,7 @@ def add_background(fg:torch.Tensor, orig_img_shape:Sequence[int], fg_start:Seque
 
 def add_background_batch(fg:torch.Tensor, orig_img_shape:Sequence[int], fg_start:Sequence[int], fg_end:Sequence[int]):
     assert fg.shape[0] == 1
-    return add_background(fg.squeeze(0), orig_img_shape, fg_start, fg_end).unsqueeze(0)
+    return add_background(fg.squeeze(0), orig_img_shape[0], fg_start[0], fg_end[0]).unsqueeze(0)
 
 
 

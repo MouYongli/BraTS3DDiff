@@ -30,7 +30,7 @@ defaults:
 # task name, determines output directory path
 task_name: "train"
 
-task_tag: "BraTS23-Patch-Classify-New-1"
+task_tag: "BraTS23-Patch-Classify-New-2"
 
 # tags to help you identify your experiments
 # you can overwrite this in experiment configs
@@ -45,7 +45,7 @@ train: True
 test: False
 
 # simply provide checkpoint path to resume training
-ckpt_path: null
+ckpt_path: ${paths.log_dir}/BraTS23-Patch-Classify-New-2/train/runs/2025-01-10_01-05-38/csv/version_0/checkpoints/epoch=99-step=99100.ckpt
 
 # seed for random number generators in pytorch, numpy and python.random
 seed: null

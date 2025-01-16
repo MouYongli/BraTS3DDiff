@@ -9,7 +9,7 @@ class MultiResPatchClassifyLoss(nn.Module):
         self.mode = mode
         self.bce = nn.BCEWithLogitsLoss()
         self.mse = nn.MSELoss()
-        self.patch_res = patch_res
+        self.patch_res = [str(x) for x in patch_res]
         self.scale_loss = scale_loss
 
     def _loss_mse(self, p, y):
@@ -18,7 +18,7 @@ class MultiResPatchClassifyLoss(nn.Module):
     def _loss_bce(self, p, y):
         return self.bce(p, y.float())
 
-    def forward(self, patch_preds:dict[torch.Tensor], patch_trues:dict[torch.Tensor]):
+    def forward(self, patch_preds:dict[str, torch.Tensor], patch_trues:dict[str, torch.Tensor]):
         #assert len(patch_preds) == len(patch_trues) == len(self.patch_res)
 
         # num_channels==1

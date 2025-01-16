@@ -53,6 +53,7 @@ class BraTSDataset(Dataset):
         mode: str = "train",
         preprocess_mask_labels: bool = False,
         dim_order: str = "w h d",
+        num_targets=3,
         labels: dict = None,
         subregions: dict = None,
         im_channels: list = None,
@@ -79,6 +80,7 @@ class BraTSDataset(Dataset):
         self.sep = sep
         self.ext = ext
         self.thresh = thresh
+        self.num_targets = num_targets
 
     def read_data(self, data_path):
         file_id = os.path.split(data_path)[1]
@@ -91,7 +93,7 @@ class BraTSDataset(Dataset):
             axis=0,
         )
         image = rearrange(image, f"c {self.dim_order} -> c w h d")
-        img_shape = image.shape
+        mask_shape = [self.num_targets]+list(image.shape[1:])
 
         if self.mode in ["train", "val"]:
             seg_path = os.path.join(data_path, f"{file_id}{self.sep}seg{self.ext}")
@@ -103,7 +105,7 @@ class BraTSDataset(Dataset):
             seg_path = os.path.join(data_path, f"{file_id}{self.sep}seg{self.ext}")
             mask = nib.load(seg_path).get_fdata().astype(np.uint8)
             mask = rearrange(mask, f"{self.dim_order} -> w h d")
-            return ({"image": image, "mask": mask}, file_id, img_shape)
+            return ({"image": image, "mask": mask}, file_id, mask_shape)
 
         elif self.mode == "predict":
             return (
@@ -111,7 +113,7 @@ class BraTSDataset(Dataset):
                     "image": image,
                 },
                 file_id,
-                img_shape,
+                mask_shape,
             )
 
         else:
@@ -168,7 +170,7 @@ class BraTSDataset(Dataset):
             # label patches as tumor(1)/non-tumor(0) based on patch tumor vol frac
             patch_tumor_vol[patch_tumor_vol > self.thresh] = 1
             patch_tumor_vol[patch_tumor_vol <= self.thresh] = 0
-            patch_tumor_vols[patch_size] = patch_tumor_vol.to(torch.uint8)
+            patch_tumor_vols[str(patch_size)] = patch_tumor_vol.to(torch.uint8)
 
         return patch_tumor_vols
 
@@ -390,6 +392,7 @@ class BraTSDataModule(pl.LightningDataModule):
             transforms=self.train_transforms,
             data_dir=self.hparams.data_dir,
             dim_order=self.hparams.dim_order,
+            num_targets=self.hparams.num_targets,
             labels=self.hparams.labels,
             subregions=self.hparams.subregions,
             im_channels=self.hparams.im_channels,
@@ -405,6 +408,7 @@ class BraTSDataModule(pl.LightningDataModule):
             transforms=self.val_transforms,
             data_dir=self.hparams.data_dir,
             dim_order=self.hparams.dim_order,
+            num_targets=self.hparams.num_targets,
             labels=self.hparams.labels,
             subregions=self.hparams.subregions,
             im_channels=self.hparams.im_channels,
@@ -420,6 +424,7 @@ class BraTSDataModule(pl.LightningDataModule):
             transforms=self.test_transforms,
             data_dir=self.hparams.data_dir,
             dim_order=self.hparams.dim_order,
+            num_targets=self.hparams.num_targets,
             labels=self.hparams.labels,
             subregions=self.hparams.subregions,
             im_channels=self.hparams.im_channels,
@@ -435,6 +440,7 @@ class BraTSDataModule(pl.LightningDataModule):
             transforms=self.predict_transforms,
             data_dir=self.hparams.data_dir,
             dim_order=self.hparams.dim_order,
+            num_targets=self.hparams.num_targets,
             labels=self.hparams.labels,
             subregions=self.hparams.subregions,
             im_channels=self.hparams.im_channels,
