@@ -57,13 +57,6 @@ class SwinUNETREnc128(nn.Module):
 
     patch_size: Final[int] = 2
 
-    @deprecated_arg(
-        name="img_size",
-        since="1.3",
-        removed="1.5",
-        msg_suffix="The img_size argument is not required anymore and "
-        "checks on the input size are run during forward().",
-    )
     def __init__(
         self,
         img_size: Sequence[int] | int,
@@ -81,8 +74,8 @@ class SwinUNETREnc128(nn.Module):
         spatial_dims: int = 3,
         downsample="merging",
         use_v2=False,
+        final_patch_emb_sizes = None,
         final_patch_sizes = [16, 32],
-        final_patch_emb_sizes = [216, 512],
         clamp_out=False,
     ) -> None:
         """
@@ -133,10 +126,11 @@ class SwinUNETREnc128(nn.Module):
 
         assert img_size == (128, 128, 128), "Input image size must be equal to (128, 128, 128)."
         assert set(final_patch_sizes).issubset({16, 32})
-        assert len(final_patch_sizes) == len(final_patch_emb_sizes)
 
         self.clamp_out = clamp_out
         self.final_patch_sizes = final_patch_sizes
+        if not final_patch_emb_sizes:
+            final_patch_emb_sizes = {16:216, 32:512}
         self.final_patch_emb_sizes = final_patch_emb_sizes
 
         if spatial_dims not in (2, 3):
@@ -188,7 +182,7 @@ class SwinUNETREnc128(nn.Module):
             self.encoder3 = UnetrBasicBlock(
                 spatial_dims=spatial_dims,
                 in_channels=8 * feature_size,
-                out_channels=final_patch_emb_sizes[0],
+                out_channels=final_patch_emb_sizes[16],
                 kernel_size=1,
                 stride=1,
                 norm_name=norm_name,
@@ -197,7 +191,7 @@ class SwinUNETREnc128(nn.Module):
 
             self.out3 = UnetOutBlock(
                 spatial_dims=spatial_dims,
-                in_channels=final_patch_emb_sizes[0],
+                in_channels=final_patch_emb_sizes[16],
                 out_channels=out_channels,
             )
 
@@ -205,7 +199,7 @@ class SwinUNETREnc128(nn.Module):
             self.encoder4 = UnetrBasicBlock(
                 spatial_dims=spatial_dims,
                 in_channels=16 * feature_size,
-                out_channels=final_patch_emb_sizes[1],
+                out_channels=final_patch_emb_sizes[32],
                 kernel_size=1,
                 stride=1,
                 norm_name=norm_name,
@@ -214,7 +208,7 @@ class SwinUNETREnc128(nn.Module):
 
             self.out4 = UnetOutBlock(
                 spatial_dims=spatial_dims,
-                in_channels=final_patch_emb_sizes[1],
+                in_channels=final_patch_emb_sizes[32],
                 out_channels=out_channels,
             )
 
@@ -295,7 +289,7 @@ class SwinUNETREnc128(nn.Module):
         if 16 in self.final_patch_sizes:
             x_3 = self.encoder3(hidden_states_out[3])
             x_3_out = self.out3(x_3)
-            assert x_3_out.shape[2:] == (128 // self.final_patch_sizes[0], ) * 3
+            assert x_3_out.shape[2:] == (8, 8, 8)
 
             if self.clamp_out:
                 x_3_out = torch.clamp(x_3_out, 0, 1)
@@ -306,7 +300,7 @@ class SwinUNETREnc128(nn.Module):
         if 32 in self.final_patch_sizes:
             x_4 = self.encoder4(hidden_states_out[4])
             x_4_out = self.out4(x_4)
-            assert x_4_out.shape[2:] == (128 // self.final_patch_sizes[1], ) * 3
+            assert x_4_out.shape[2:] == (4, 4, 4)
 
             if self.clamp_out:
                 x_4_out = torch.clamp(x_4_out, 0, 1)

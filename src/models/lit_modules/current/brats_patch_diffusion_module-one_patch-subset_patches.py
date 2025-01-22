@@ -260,21 +260,18 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
 
     def on_train_start(self):
         self.patch_emb_sizes = self.hparams.extra_kwargs.patch_emb_sizes
-        self.start_eps = self.hparams.extra_kwargs.start_eps
-        self.num_epochs_use = self.hparams.extra_kwargs.num_epochs_use
-        self.eps_schedule = self.hparams.extra_kwargs.eps_schedule
+        self.start_eps = float(self.hparams.extra_kwargs.start_eps)
+        self.end_eps = float(self.hparams.extra_kwargs.end_eps)
+        self.num_epochs_use = self.hparams.extra_kwargs.num_epochs_use - 1
         self.num_samples = self.hparams.extra_kwargs.num_samples
         self.eps = None
 
     def on_train_epoch_start(self):
-        if self.trainer.current_epoch <= self.num_epochs_use - 1:
-            if self.eps_schedule == 'linear':
-                self.eps = self.start_eps*(1-(self.trainer.current_epoch/(self.num_epochs_use -1 )))
-            elif self.eps_schedule == 'cosine':
-                self.eps = self.start_eps*np.cos((torch.pi*self.trainer.current_epoch)/(2*self.num_epochs_use))
-
+        if self.trainer.current_epoch <= self.num_epochs_use:
+            #linear eps scheduling: reduce eps over epochs linearly
+            self.eps = self.start_eps - ((self.start_eps-self.end_eps)*(self.trainer.current_epoch/self.num_epochs_use))
         self.log('eps', self.eps,  on_epoch=True, prog_bar=True)
-    
+
 
     def _get_sampled_patches_stats(self, patch_tumor_vol_fracs, patch_tumor_labels, sampled_patch_indices_nd):
         sampled_patch_tumor_vol_fracs = get_vals_from_idxs(patch_tumor_vol_fracs, sampled_patch_indices_nd)

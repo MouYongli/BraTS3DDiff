@@ -5,7 +5,7 @@
 defaults:
   - _self_
   - data: brats23_patch_tumor_classify_diffusion_new
-  - model: patch_tumor_classify_diffusion_new_one_patch_subset_patches
+  - model: patch_tumor_classify_diffusion_new_one_patch_subset_patches_32
   - callbacks: default
   - logger: [csv, wandb] # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
   - trainer: gpu
@@ -31,7 +31,7 @@ defaults:
 task_name: "train"
 
 
-task_tag: "BraTS23-PatchDiffusion-PatchSize=16-Random_Subset_Patches"
+task_tag: "BraTS23-PatchDiffusion-PatchSize=32-Random_Subset_Patches"
 
 # tags to help you identify your experiments
 # you can overwrite this in experiment configs
