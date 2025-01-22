@@ -7,7 +7,7 @@ from monai.metrics import DiceMetric
 import os
 from einops import repeat, rearrange, reduce
 
-from BraTS3DDiff.src.loss.patch_tumor_loss import VolumePredLoss
+from Projects.BraTS3DDiff.src.loss.patch_classify_loss import VolumePredLoss
 from monai.inferers import SlidingWindowInferer
 from src.models.utils.utils import compute_subregions_pred_metrics
 from copy import deepcopy

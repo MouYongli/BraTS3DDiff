@@ -134,7 +134,9 @@ class BraTSDataset(Dataset):
             b, c, w, h, d = mask.shape
             mask = mask[:, 0].unsqueeze(1)
 
-        patch_tumor_vols = {}
+        patch_tumor_vol_fracs = {}
+        patch_tumor_labels = {}
+
         for patch_size in self.patch_sizes:
             assert (
                 w % patch_size == 0 and h % patch_size == 0 and d % patch_size == 0
@@ -149,7 +151,7 @@ class BraTSDataset(Dataset):
                     d // patch_size,
                     patch_size,
                 )
-                patch_tumor_vol = mask_patch.sum(axis=(2, 4, 6)) / (
+                patch_tumor_vol_frac = mask_patch.sum(axis=(2, 4, 6)) / (
                     patch_size * patch_size * patch_size
                 )
             elif len(mask.shape) == 5:
@@ -163,16 +165,13 @@ class BraTSDataset(Dataset):
                     d // patch_size,
                     patch_size,
                 )
-                patch_tumor_vol = mask_patch.sum(axis=(3, 5, 7)) / (
+                patch_tumor_vol_frac = mask_patch.sum(axis=(3, 5, 7)) / (
                     patch_size * patch_size * patch_size
                 )
+            patch_tumor_vol_fracs[str(patch_size)] = patch_tumor_vol_frac
+            patch_tumor_labels[str(patch_size)] = patch_tumor_vol_frac.gt(self.thresh)
 
-            # label patches as tumor(1)/non-tumor(0) based on patch tumor vol frac
-            patch_tumor_vol[patch_tumor_vol > self.thresh] = 1
-            patch_tumor_vol[patch_tumor_vol <= self.thresh] = 0
-            patch_tumor_vols[str(patch_size)] = patch_tumor_vol.to(torch.uint8)
-
-        return patch_tumor_vols
+        return patch_tumor_vol_fracs, patch_tumor_labels
 
 
 
@@ -183,8 +182,9 @@ class BraTSDataset(Dataset):
         """Mask with shape C x W x H x D, image with shape C x W x H x D, patch label with shape 1 x W//N x H//N x D//N."""
         if self.mode in ["train", "val"]:
             data = self.read_data(self.image_path[index])
+            data['mask_labels'] = np.expand_dims(data['mask'], axis=0)
             data = self.transforms(data)
-            data["patch_tumor_labels"] = self.label_patches(data["mask"])
+            data["patch_tumor_vol_fracs"], data["patch_tumor_labels"] = self.label_patches(data["mask"])
             return data
 
         elif self.mode in ["test", "predict"]:
@@ -195,6 +195,13 @@ class BraTSDataset(Dataset):
         else:
             raise ValueError("mode must be in ['train', 'val', 'test', 'predict']")
 
+        '''
+        elif self.mode == "val":
+            data = self.read_data(self.image_path[index])
+            data = self.transforms(data)
+            _ , data["patch_tumor_labels"] = self.label_patches(data["mask"])
+            return data
+        '''
 
 class BraTSDataModule(pl.LightningDataModule):
     def __init__(
@@ -284,16 +291,16 @@ class BraTSDataModule(pl.LightningDataModule):
                     subregions=self.hparams.subregions
                 ),
                 CropForegroundd(
-                    keys=["image", "mask"],
+                    keys=["image", "mask", "mask_labels"],
                     source_key="image",
                 ),
                 RandSpatialCropd(
-                    keys=["image", "mask"],
+                    keys=["image", "mask", "mask_labels"],
                     roi_size=[w, h, d],
                     random_size=False,
                 ),
                 SpatialPadd(
-                    keys=["image", "mask"], 
+                    keys=["image", "mask", "mask_labels"],
                     spatial_size=(w, h, d),
                 ),
                 NormalizeIntensityd(
@@ -301,7 +308,7 @@ class BraTSDataModule(pl.LightningDataModule):
                     nonzero=True,
                     channel_wise=True,
                 ),
-                ToTensord(keys=["image", "mask"]),
+                ToTensord(keys=["image", "mask", "mask_labels"]),
             ]
         )
 

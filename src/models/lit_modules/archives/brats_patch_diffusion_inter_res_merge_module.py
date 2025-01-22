@@ -36,7 +36,7 @@ from src.models.diffusion.build_diffusion import BuildDiffusion
 from monai.inferers.inferer import SlidingWindowInferer
 from src.models.diffusion.enums import *
 from src.models.networks.swinunetr.swinunetr_enc import SwinUNETREnc
-from src.loss.patch_tumor_loss import PatchTumorLoss
+from Projects.BraTS3DDiff.src.loss.patch_classify_loss import PatchTumorLoss
 from src.utils.model_utils import get_nonzero_patches, fill_in_window_with_patches
 log = RankedLogger(__name__, rank_zero_only=True)
 

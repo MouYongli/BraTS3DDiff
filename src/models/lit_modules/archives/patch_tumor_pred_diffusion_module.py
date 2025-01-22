@@ -37,7 +37,7 @@ from monai.metrics import DiceMetric, compute_hausdorff_distance
 from src.models.diffusion.enums import *
 from src.utils.visualization import plot_mask
 from src.models.networks.swinunetr.swinunetr_enc import SwinUNETREnc
-from src.loss.patch_tumor_loss import PatchTumorLoss
+from Projects.BraTS3DDiff.src.loss.patch_classify_loss import PatchTumorLoss
 
 
 log = RankedLogger(__name__, rank_zero_only=True)

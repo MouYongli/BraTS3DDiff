@@ -293,6 +293,10 @@ def patches2window(patches, win_size=(128,128,128)):
     return win
 
 
+def stable_divide(nom, denom):
+    return nom/denom if denom != 0 else 0
+
+
 def expand_patches(patch_labels, patch_size=16, patch_channels=3):
     '''
     Expand 3D tensor of patch_labels (B,1,W_,H_,D_) such that,
@@ -405,6 +409,43 @@ def get_nonzero_patches(patch_labels, patch_map, patch_size=8, patch_channels=1)
     return (num_nonzero_patches, nonzero_patches)
 
 
+def get_patches_from_idx(patch_map, patch_idxs, patch_size=8, patch_channels=1):
+    '''
+    Get the patches where patch_labels == 1
+    Args:
+        patch_labels: bool tensor (shape: (B, 1, W_, H_, D_))
+        patch_map: float tensor (shape: (B, C*P^3, W_, H_, D_))
+                3D map of 1D patch tensors. Every spatial location indicates a patch location,
+                channels are patch features
+    Returns:
+        nonzero_patches: float tensor (shape: (num_nonzero_patches, C, P, P, P))
+    '''
+    B, C_, W_, H_, D_ = patch_map.shape
+    assert C_ == patch_channels*(patch_size**3)
+
+    # Find nonzero patches
+    nonzero_patch_indices = patch_labels.nonzero(as_tuple=True)
+    num_nonzero_patches = nonzero_patch_indices[0].shape[0]
+    if num_nonzero_patches == 0:
+        return (0, None)
+
+    # get the patch data corresponding to nonzero patch indices
+    # B,C*P*P*P,W_,H_,D_ -> (num_nonzero_patches ,C*P*P*P)
+    nonzero_patches = patch_map[
+        nonzero_patch_indices[0],
+        :,
+        nonzero_patch_indices[2],
+        nonzero_patch_indices[3],
+        nonzero_patch_indices[4],
+    ]
+
+    # nonzero_patch: (num_nonzero_patches, C*P*P*P) -> (num_nonzero_patches, C, patch_size, patch_size, patch_size)
+    nonzero_patches = nonzero_patches.view(
+        num_nonzero_patches, patch_channels, patch_size, patch_size, patch_size
+    )
+    
+    return (num_nonzero_patches, nonzero_patches)
+
 def fill_in_window_with_patches(window,patch_labels,fill_patches):
     '''
     fill in a (zero tensor) window, at patch locations where patch_labels == 1
@@ -447,6 +488,55 @@ def fill_in_window_with_patches(window,patch_labels,fill_patches):
             d_idx * patch_size : (d_idx + 1) * patch_size,
         ] = fill_patches[j]
     return window
+
+
+
+def sample_patch_indices(patch_tumor_vol_fracs, eps=0.0, num_samples=None):
+    #patch_tumor_vol_fracs = (B,1,W_,H_,D_)
+    wts = patch_tumor_vol_fracs.view(1,-1).squeeze(dim=0)
+    wts = wts + eps
+    if not num_samples:
+        num_samples = wts.shape[0] // 2
+    sampled_indices_flat = torch.multinomial(wts, num_samples=num_samples)
+    sampled_indices_nd = torch.unravel_index(sampled_indices_flat, patch_tumor_vol_fracs.shape)
+    return sampled_indices_flat, sampled_indices_nd
+
+def get_vals_from_idxs(x:torch.Tensor, idxs:tuple[torch.Tensor]):
+    '''
+    Args:
+        x: (b,c,w,h,d) tensor. get values of given indexes along the c dimension
+        idxs: idx of samples along each dimension
+            ([....b_indices....],[.....c_indices....],[.....w_indices....],[.....h_indices....],[.....d_indices....])
+    Returns: 
+        Values of the selected samples along c dimension
+        (num samples, c)
+    '''
+    return x[idxs[0], :, idxs[2], idxs[3], idxs[4]] #(num samples, C)
+
+
+def ravel_index(index:torch.Tensor, shape:tuple[int]):
+    """Ravel multi-dimensional indices to 1D index
+    similar to np.ravel_multi_index
+    Args:
+        index (torch.tensor): indices in reversed order dn, ..., d1, with shape (..., n)
+        shape (tuple): dn, ..., d1
+    """
+    #index = torch.tensor(index, dtype=torch.int64)
+    shape = torch.tensor((1,) + shape[::-1], dtype=torch.int64).to(index) # =(1, d1, d1*d2, ..., d1*...*dn)
+    shape = torch.cumprod(shape, dim=0)[:-1].flip(0) # =(d1*...*dn-1, ..., d1*d2, d1, 1)
+    index = (index * shape).sum(dim=-1) # (...,)
+    return index
+
+
+def ravel_tuple_index(index:tuple[torch.Tensor], shape:tuple[int]):
+    """Ravel multi-dimensional indices to 1D index
+    similar to np.ravel_multi_index
+    Args:
+        index tuple(torch.tensor): each tuple item indices a certain dimension with shape (1, num_idxs)
+        shape (tuple): dn, ..., d1
+    """
+    index = torch.stack(index,dim=0).T
+    return ravel_index(index, shape)
 
 
 if __name__ == "__main__":
