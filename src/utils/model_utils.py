@@ -491,6 +491,7 @@ def fill_in_window_with_patches(window,patch_labels,fill_patches):
 
 
 
+
 def sample_patch_indices(patch_tumor_vol_fracs, eps=0.0, num_samples=None):
     #patch_tumor_vol_fracs = (B,1,W_,H_,D_)
     wts = patch_tumor_vol_fracs.view(1,-1).squeeze(dim=0)
@@ -537,6 +538,30 @@ def ravel_tuple_index(index:tuple[torch.Tensor], shape:tuple[int]):
     """
     index = torch.stack(index,dim=0).T
     return ravel_index(index, shape)
+
+
+def fold_patches(patches, img_shape, up:int=2):
+    '''
+    increase patch res by up x times
+    img_shape: B, C, W, H, D
+    Convert a tensor of all patches in img (B*W_*H_*D_, C, P, P, P) to 2x patches (B*W_*H_*D_//(up**3), C, up*P, up*P, up*P)
+    W_, H_, D_ are the patch locations
+    '''
+    B, C, W, H, D = img_shape
+    N, C, patch_size, patch_size, patch_size = patches.shape
+    W_, H_, D_ = W//patch_size, H//patch_size, D//patch_size
+    assert N == B*W_*H_*D_
+    
+    #target patch size and patch locations
+    tgt_patch_size = up * patch_size
+    tgt_W_, tgt_H_, tgt_D_  = W_//up, H_//up, D_//up
+
+    return patches.view(B, W_, H_, D_, C, patch_size, patch_size, patch_size) \
+        .permute(0, 4, 1, 5, 2, 6, 3, 7).contiguous() \
+        .view(B, C, tgt_W_, tgt_patch_size, tgt_H_, tgt_patch_size, tgt_D_, tgt_patch_size) \
+        .permute(0, 2, 4, 6, 1, 3, 5, 7).contiguous() \
+        .view(-1, C, tgt_patch_size, tgt_patch_size, tgt_patch_size)
+        
 
 
 if __name__ == "__main__":
