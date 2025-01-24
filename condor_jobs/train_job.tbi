@@ -51,7 +51,7 @@ environment   = "working_dir=/home/staff/USERNAME/SUBDIR data_dir=/home/staff/US
 nice_user = True
 
 # Attention: You can only set one requirement line. Add more requirements by using && e.g.
-requirements = (CUDAGlobalMemoryMb > 13000) && POOL =="cluster"
+requirements = (CUDAGlobalMemoryMb > 20000) && POOL =="cluster"
 
 
 # required number of CPU cores
@@ -61,11 +61,11 @@ request_cpus = 1
 request_gpus = 1
 
 # required CPU RAM
-request_memory = 30 GB
+request_memory = 8 GB
 
 # required Disk space
 
-request_disk = 40 GB
+request_disk = 50 GB
 
 # criterion after which to choose the machine
 # e.g. `rank = memory` takes machine with largest RAM
