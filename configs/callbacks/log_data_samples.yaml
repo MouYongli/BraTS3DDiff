@@ -1,0 +1,4 @@
+log_data_samples:
+  _target_: src.callbacks.data_viz_callback.LogDataSamplesCallback
+  max_train_images_visualized: 1
+  max_val_images_visualized: 1

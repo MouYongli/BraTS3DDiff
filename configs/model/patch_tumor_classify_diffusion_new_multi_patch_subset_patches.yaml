@@ -1,4 +1,4 @@
-_target_: src.models.lit_modules.end2end_train.brats_patch_diffusion_end2end_multi_patch_all_patches_no_classify_loss_module.BraTSPatchTumorDiffusionLitModule
+_target_: src.models.lit_modules.end2end_train.brats_patch_diffusion_end2end_multi_patch_subset_patches_no_classify_loss_module.BraTSPatchTumorDiffusionLitModule
 optimizer:
   _target_: torch.optim.AdamW
   _partial_: true
@@ -42,10 +42,18 @@ patch_up_net:
       spatial_dims: 3
       in_chns: 1
       out_chns: 1
+      act: LeakyReLU
+      norm: instance
+      bias: True
+      dropout: 0.0
     - _target_: src.models.networks.patch_unet.ups.Up8to32_2
       spatial_dims: 3
       in_chns: 1
       out_chns: 1
+      act: LeakyReLU
+      norm: instance
+      bias: True
+      dropout: 0.0
 
 patch_emb_net:
   _target_: src.models.networks.patch_unet.patch_enc.PatchUNetEncoder
@@ -65,6 +73,7 @@ patch_denoise_net:
   features: [32, 32, 64, 128, 256, 32]
   act: LeakyReLU
   norm: instance
+  bias: True
   dropout: 0.0
   upsample: deconv
 
@@ -96,6 +105,11 @@ extra_kwargs:
   patch_emb_sizes: [6, 8]
   patch_thresh: 0.70
   subregions_names: ["WT", "TC", "ET"]
+  start_eps: [0.1, 0.1]
+  end_eps: [1e-20, 1e-20]
+  num_epochs_use: [200, 200]
+  num_samples: [256, 32]
+  plot_grad_flow_freq: 20
 
 # compile model for faster training with pytorch 2.0
 compile: false

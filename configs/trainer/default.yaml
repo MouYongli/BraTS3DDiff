@@ -5,6 +5,12 @@ default_root_dir: ${paths.output_dir}
 min_epochs: 5 # prevents early stopping
 max_epochs: 300
 
+#debug mode
+#limit_train_batches: 0.01
+#limit_val_batches: 0.05
+#limit_test_batches: 0.05
+#profiler: "pytorch"
+
 accelerator: cpu
 devices: 1
 
@@ -12,7 +18,7 @@ devices: 1
 # precision: 16
 
 # perform a validation loop every N training iterations
-check_val_every_n_epoch: 1
+check_val_every_n_epoch: 5
 
 num_sanity_val_steps: 1
 

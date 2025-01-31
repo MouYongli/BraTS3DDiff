@@ -4,8 +4,9 @@ import torch
 import torch.distributed as dist
 from typing import Sequence
 import numpy as np
+import itertools
 
-from monai.metrics import DiceMetric, confusion_matrix
+from monai.metrics import DiceMetric
 
 def perfect_cbrt(n : Sequence[int]):
     #find cube_root of a seq of perfect cubes 
@@ -502,6 +503,7 @@ def sample_patch_indices(patch_tumor_vol_fracs, eps=0.0, num_samples=None):
     sampled_indices_nd = torch.unravel_index(sampled_indices_flat, patch_tumor_vol_fracs.shape)
     return sampled_indices_flat, sampled_indices_nd
 
+
 def get_vals_from_idxs(x:torch.Tensor, idxs:tuple[torch.Tensor]):
     '''
     Args:
@@ -561,7 +563,174 @@ def fold_patches(patches, img_shape, up:int=2):
         .view(B, C, tgt_W_, tgt_patch_size, tgt_H_, tgt_patch_size, tgt_D_, tgt_patch_size) \
         .permute(0, 2, 4, 6, 1, 3, 5, 7).contiguous() \
         .view(-1, C, tgt_patch_size, tgt_patch_size, tgt_patch_size)
-        
+
+
+
+def compute_grad_norm(model):
+    total_norm = 0.0
+    for p in model.parameters():
+        param_norm = p.grad.data.norm(2)
+        total_norm += param_norm.item() ** 2
+    total_norm = total_norm ** (1. / 2)
+    return total_norm
+
+
+def plot_grad_flow(model):
+    from matplotlib import pyplot as plt
+    from matplotlib.lines import Line2D
+    '''Plots the gradients flowing through different layers in the net during training.
+    Can be used for checking for possible gradient vanishing / exploding problems.
+    
+    Usage: Plug this function in Trainer class after loss.backwards() as 
+    "plot_grad_flow(self.model.named_parameters())" to visualize the gradient flow'''
+    ave_grads = []
+    max_grads= []
+    norm_grads = []
+    layers = []
+    for n, p in model.named_parameters():
+        if(p.requires_grad) and ("bias" not in n):
+            layers.append(n)
+            grad_ = p.grad.detach().cpu()
+            ave_grads.append(grad_.abs().mean())
+            max_grads.append(grad_.max())
+            norm_grads.append(grad_.data.norm(2)/(grad_.data.numel()**(1/2)))
+    plt.figure()
+    plt.bar(np.arange(len(max_grads)), max_grads, alpha=0.1, lw=1, color="red")
+    plt.bar(np.arange(len(max_grads)), ave_grads, alpha=0.1, lw=1, color="green")
+    #plt.hlines(0, 0, len(ave_grads)+1, lw=2, color="k" )
+    plt.xticks(range(0,len(ave_grads), 1), layers, rotation="vertical")
+    plt.xlim(left=0, right=len(ave_grads))
+    plt.ylim() # zoom in on the lower gradient regions
+    plt.xlabel("Layers")
+    plt.ylabel("Gradient Stats")
+    plt.title("Gradient flow")
+    plt.grid(True)
+    plt.legend([Line2D([0], [0], color="red", lw=4),
+                Line2D([0], [0], color="green", lw=4)], ['max-gradient', 'mean-gradient'], labelcolor='black')
+    #plt.tight_layout()
+    fig = plt.gcf()
+    fig.set_facecolor('white')
+    fig.set_size_inches(18.5, 10.5, forward=True)
+    fig.tight_layout()
+    #fig.savefig(f'/home/ca550013/Master-Thesis/Projects/BraTS3DDiff/tmp/{tag}.png')
+
+    plt.figure()
+    plt.bar(np.arange(len(max_grads)), norm_grads, alpha=0.2, lw=1, color="blue")
+    #plt.hlines(0, 0, len(ave_grads)+1, lw=2, color="k" )
+    plt.xticks(range(0,len(max_grads), 1), layers, rotation="vertical")
+    plt.xlim(left=0, right=len(ave_grads))
+    plt.ylim() # zoom in on the lower gradient regions
+    plt.xlabel("Layers")
+    plt.ylabel("Normalized Gradient Norms")
+    plt.title("Normalized Gradient Norms")
+    plt.grid(True)
+    plt.legend([Line2D([0], [0], color="blue", lw=4)], ['norm-gradient'], labelcolor='black')
+    #plt.tight_layout()
+    fig1 = plt.gcf()
+    fig1.set_facecolor('white')
+    fig1.set_size_inches(18.5, 10.5, forward=True)
+    fig1.tight_layout()
+    #fig1.savefig(f'/home/ca550013/Master-Thesis/Projects/BraTS3DDiff/tmp/{tag}_norms.png')
+
+    return fig, fig1
+
+def get_x_patch_idx_from_2x_patch_idx_v1(patch_2x_flat_idx, patch_x_shape, patch_2x_shape):
+  assert len(patch_x_shape) == len(patch_2x_shape) in [4, 5]
+  ndim = len(patch_x_shape)
+  assert np.all(np.array(patch_x_shape[2:]) == 2*np.array(patch_2x_shape[2:]))
+
+  unravled_2x_idxs = torch.stack(torch.unravel_index(patch_2x_flat_idx, patch_2x_shape), dim=0).T
+  x_start_offset = torch.tensor([1,1,2,2]) if ndim == 4 else torch.tensor([1,1,2,2,2])
+  unravled_start_x_idxs = (unravled_2x_idxs*x_start_offset).to(unravled_2x_idxs)
+
+  offsets = list(itertools.product([0, 1], repeat=ndim-2))
+  offsets = [[0,0]+list(offset) for offset in offsets]
+  offsets = torch.tensor(offsets).to(unravled_start_x_idxs)
+
+  unravled_all_x_idxs = unravled_start_x_idxs.unsqueeze(1) + offsets
+  unravled_all_x_idxs = unravled_all_x_idxs.contiguous().view(-1,len(patch_x_shape))
+
+  flat_x_patch_idx = ravel_index(unravled_all_x_idxs, patch_x_shape)
+
+  return flat_x_patch_idx
+
+def get_x_patch_idx_from_2x_patch_idx_v2(patch_2x_flat_idx, patch_x_shape, patch_2x_shape):  
+  assert len(patch_x_shape) == len(patch_2x_shape) in [4, 5]
+  ndim = len(patch_x_shape)
+  assert np.all(np.array(patch_x_shape[2:]) == 2*np.array(patch_2x_shape[2:]))
+  
+  num_patches_x = np.prod(patch_x_shape[2:])
+  patch_x_idx_arr = torch.arange(num_patches_x).to(patch_2x_flat_idx)
+  if ndim == 4:
+    patch_x_idx_arr = patch_x_idx_arr.view(1,1,patch_x_shape[2],patch_x_shape[3])
+    #patchify index array to 2x2 patches. a 2x2 patch stores the patch x indices of a 2x patch index
+    patch_x_idx_arr = patch_x_idx_arr.view(1, 1, patch_x_shape[2]//2, 2, patch_x_shape[3]//2, 2) \
+                                .permute(0, 2, 4, 1, 3, 5).contiguous().view(-1,1,2,2)
+  else:
+    patch_x_idx_arr = patch_x_idx_arr.view(1,1,patch_x_shape[2],patch_x_shape[3],patch_x_shape[4])
+    #reshape index array to 2x2x2. a 2x2x2 patch stores the patch x indices of a 2x patch index
+    patch_x_idx_arr = patch_x_idx_arr.view(1, 1, patch_x_shape[2]//2, 2, patch_x_shape[3]//2, 2, patch_x_shape[4]//2, 2) \
+                                .permute(0, 2, 4, 6, 1, 3, 5, 7).contiguous().view(-1,1,2,2,2)
+  
+  patch_x_flat_idx = patch_x_idx_arr[patch_2x_flat_idx].flatten()
+  return patch_x_flat_idx
+
+
+def aggregate_common_x_and_2x_patches(img_patches_x, flat_patch_indices_x, patch_x_shape, img_patches_2x, flat_patch_indices_2x, patch_2x_shape, agg='mean'):
+    '''
+    Given a set of size x patches and size 2x patches corresponding to the same image,
+    aggregate the common regions
+    '''
+    assert len(patch_x_shape) == len(patch_2x_shape) in [4, 5]
+    assert np.all(np.array(patch_x_shape[2:]) == 2*np.array(patch_2x_shape[2:]))
+    ndim = len(patch_x_shape)
+
+    flat_patch_indices_x_from_2x = get_x_patch_idx_from_2x_patch_idx_v2(flat_patch_indices_2x, patch_x_shape, patch_2x_shape)
+
+    if ndim == 4:
+        N_x,C,x,x = img_patches_x.shape #N_x:num of size x patches
+        assert img_patches_2x.shape[1:] == (C,2*x,2*x)
+        img_patches_x_from_2x = img_patches_2x.view(-1,C,2,x,2,x).permute(0,2,4,1,3,5).contiguous().view(-1,C,x,x)
+    else:
+        N_x,C,x,x,x = img_patches_x.shape #N_x:num of size x patches
+        assert img_patches_2x.shape[1:] == (C,2*x,2*x,2*x)
+        img_patches_x_from_2x = img_patches_2x.view(-1,C,2,x,2,x,2,x).permute(0,2,4,6,1,3,5,7).contiguous().view(-1,C,x,x,x)
+
+    common_patch_indices = (flat_patch_indices_x.unsqueeze(1)==flat_patch_indices_x_from_2x).nonzero()
+    common_patches = torch.stack((img_patches_x[common_patch_indices[:,0]],  img_patches_x_from_2x[common_patch_indices[:,1]]))
+    if agg=='mean':
+        return common_patches.mean(dim=0)
+    elif agg == 'sum':
+        return common_patches.sum(dim=0)
+    else:
+        raise ValueError('agg should be either "mean" or "sum"')
+
+
+def aggregate_common_x_and_2x_patches_mul(imgs_patches_x, flat_patch_indices_x, patch_x_shape, imgs_patches_2x, flat_patch_indices_2x, patch_2x_shape, agg='mean'):
+    '''
+    Given a set of size x patches and size 2x patches corresponding to the same image,
+    aggregate the common regions
+    '''
+    assert np.all(np.array(patch_x_shape[2:]) == 2*np.array(patch_2x_shape[2:]))
+
+    flat_patch_indices_x_from_2x = get_x_patch_idx_from_2x_patch_idx_v2(flat_patch_indices_2x, patch_x_shape, patch_2x_shape)
+    common_patch_indices = (flat_patch_indices_x.unsqueeze(1)==flat_patch_indices_x_from_2x).nonzero()
+
+    common_patches_list = []
+    for img_patches_x, img_patches_2x in zip(imgs_patches_x, imgs_patches_2x):
+        N_x,C,x,x,x = img_patches_x.shape #N_x:num of size x patches
+        assert img_patches_2x.shape[1:] == (C,2*x,2*x,2*x)
+
+        img_patches_x_from_2x = img_patches_2x.view(-1,C,2,x,2,x,2,x).permute(0,2,4,6,1,3,5,7).contiguous().view(-1,C,x,x,x)
+        common_patches = torch.stack((img_patches_x[common_patch_indices[:,0]],  img_patches_x_from_2x[common_patch_indices[:,1]]))
+        if agg=='mean':
+            common_patches_list.append(common_patches.mean(dim=0))
+        elif agg == 'sum':
+            return common_patches_list.append(common_patches.sum(dim=0))
+        else:
+            raise ValueError('agg should be either "mean" or "sum"')
+
+    return common_patches_list, common_patch_indices
 
 
 if __name__ == "__main__":

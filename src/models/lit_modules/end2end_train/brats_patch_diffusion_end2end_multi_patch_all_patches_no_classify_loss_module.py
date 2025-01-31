@@ -116,7 +116,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         )
         self.denoising_criterion = DenoisingLoss(diffusion=self.diffusion)
         self.segment_criterion = MultiResPatchSegLoss(patch_res=self.patch_sizes, incl_mean=True,
-                                    scale_loss=1./3, dice_batch=True, prefixes=['seg', 'masked_seg'])
+                                    scale_loss=1./2, dice_batch=True, prefixes=['seg', 'masked_seg'])
 
         self.patch_classify_metric = MultiResPatchClassifyMetrics(patch_sizes=self.patch_sizes,
                                             sigmoid=True, thresh=self.hparams.extra_kwargs.patch_thresh)
@@ -284,15 +284,14 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         )
         B, C, W, H, D = mask.shape
 
-        loss_dict = {}
-        pred_seg_masks = {}
-        masked_pred_seg_masks = {}
+        loss_dict = {'deno_loss': 0.0}
 
         # get patch embeddings and pred patch labels from SwinT encoder
         # compute patch classify loss
         patches_embeddings, patches_pred_labels = self.forward(
             image=image, pred_type="patchify"
         )
+
         patches_classify_loss_dict = self.patch_classify_criterion(patches_pred_labels, patch_tumor_labels)
         loss_dict.update(patches_classify_loss_dict)
 
@@ -348,7 +347,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
                 model_output=denoise_out_patch, x_start=x_start_patch, x_t=x_t_patch, t=t_patch, noise=noise_patch, weights=weights_patch
             )
             loss_dict[f"deno_loss_res={patch_size}"] = deno_loss
-            loss_dict[f"deno_loss"] = deno_loss
+            loss_dict[f"deno_loss"] += deno_loss
             # update deno loss history (for importance sampling objective)
             if isinstance(self.schedule_sampler, LossAwareSampler):
                 self.schedule_sampler.update_with_local_losses(
@@ -366,39 +365,18 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
             pred_mask_patch = pred_mask_patch.sigmoid()
             #compute seg loss
             self.segment_criterion(pred_mask_patch, mask_patch, patch_res=patch_size, prefix='seg')
-            pred_seg_masks[str(patch_size)] = pred_mask_patch
 
-            # Scale the predicted segmentation mask using the patch pred tumor labels and then compute seg loss
-            ## Eg. If pred_mask patch has a tumor region but if the corresponding patch tumor prob is low, 
-            # the patchify_net gets a penalty since it should have predicted tumor with a high probabilty (penalises false negatives)
-            # Expand shape of patch_pred_labels so that it matches the shape of pred_mask
-            # patch_pred_labels (B,1,W_,H_,D_) ->  (B*W_*H_*D_ , 1, 1, 1, 1)
             patch_pred_labels = patches_pred_labels[str(patch_size)].sigmoid()
             patch_pred_labels = get_all_patches(patch_pred_labels, 1, 1)
             masked_pred_mask_patch = patch_pred_labels * pred_mask_patch
+            #compute masked seg loss
             self.segment_criterion(masked_pred_mask_patch, mask_patch, patch_res=patch_size, prefix='masked_seg')
-            masked_pred_seg_masks[str(patch_size)] = masked_pred_mask_patch
-
-        # Mean of predicted 16 and 32 res mask patches
-        ##aggregate 8 adjacent 16x16x16 patch size masks spatially to form a 32x32x32 patch size mask
-        ##then compute the mean at 32 patch resolution
-        pred_seg_mask_16_to_32 = fold_patches(pred_seg_masks['16'], img_shape=mask.shape)
-        assert pred_seg_mask_16_to_32.shape == pred_seg_masks['32'].shape == mask_patch.shape
-        mean_pred_mask = torch.stack([pred_seg_mask_16_to_32, pred_seg_masks['32']]).mean(dim=0)
-        self.segment_criterion(mean_pred_mask, mask_patch, patch_res='mean', prefix='seg')
-
-        # (MASKED) Mean of mask window predictions using all the patch_sizes
-        masked_pred_seg_mask_16_to_32 = fold_patches(masked_pred_seg_masks['16'], img_shape=mask.shape)
-        assert masked_pred_seg_mask_16_to_32.shape == masked_pred_seg_masks['32'].shape == mask_patch.shape
-        masked_mean_pred_mask = torch.stack([masked_pred_seg_mask_16_to_32, masked_pred_seg_masks['32']]).mean(dim=0)
-        self.segment_criterion(masked_mean_pred_mask, mask_patch, patch_res='mean', prefix='masked_seg')
 
         self.segment_criterion._scale_loss()
         loss_dict.update(self.segment_criterion.loss_dict)
         self.segment_criterion._reset_loss()
 
         loss_dict["loss"] = (
-            loss_dict["patch_classify_loss"] #bce_patch_16+bce_patch_32
             + loss_dict["deno_loss"] #deno_mse_patch_16+deno_mse_patch_32
             + loss_dict["seg_loss"] #seg_loss_patch_16+seg_loss_patch_32+seg_loss_patch_mean (seg_loss=(dice+bce)/2)
             + loss_dict["masked_seg_loss"] #same as seg_loss

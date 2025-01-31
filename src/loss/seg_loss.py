@@ -93,6 +93,7 @@ class MultiResPatchSegLoss(nn.Module):
         self.loss_dict = None
 
     def _init_loss(self, prefixes=None):
+        assert self.loss_dict is None
         if not prefixes:
             prefixes = self.prefixes
         self.loss_dict = {f'{prefix}_loss' : 0.0 for prefix in prefixes}
@@ -108,6 +109,7 @@ class MultiResPatchSegLoss(nn.Module):
         assert patch_res in self.patch_res
         res_loss_dict, res_loss = self.loss_fn(pred, true, fg=fg, prefix=prefix, suffix=f'res={patch_res}')
         self.loss_dict[f'{prefix}_loss'] += res_loss
+        assert f'{prefix}_loss' not in res_loss_dict.keys()
         self.loss_dict.update(res_loss_dict)
 
     def _scale_loss(self, prefixes=None):
@@ -115,6 +117,7 @@ class MultiResPatchSegLoss(nn.Module):
             prefixes = self.prefixes
         for prefix in prefixes:
             self.loss_dict[f'{prefix}_loss'] *= self.scale_loss
+        #TODO: different scale factors for different prefix losses
 
     def _reset_loss(self):
         self.loss_dict = None
