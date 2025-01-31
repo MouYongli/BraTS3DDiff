@@ -77,7 +77,7 @@ class SwinUNETREnc128(nn.Module):
         final_patch_emb_sizes = None,
         final_patch_sizes = [16, 32],
         clamp_out=False,
-    ) -> None:
+    ) -> None: 
         """
         Args:
             img_size: spatial dimension of input image.
