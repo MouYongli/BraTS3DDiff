@@ -4,11 +4,13 @@ from torch.nn import functional as F
 from monai.losses import MaskedDiceLoss, DiceLoss
 
 class BraTSegLoss(nn.Module):
-    def __init__(self, scale_loss:float=1.0, dice_batch=False):
+    def __init__(self, scale_loss:float=None, dice_batch=False):
         super().__init__()
         self.dice = DiceLoss(sigmoid=False, batch=dice_batch)
         self.masked_dice = MaskedDiceLoss(sigmoid=False, batch=dice_batch)
         self.bce = F.binary_cross_entropy
+        if not scale_loss:
+            scale_loss = 0.5
         self.scale_loss = scale_loss
 
     def _loss_dice(self, pred, true, fg=None):

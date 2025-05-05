@@ -1,12 +1,59 @@
 from typing import Any, Callable, Hashable, Mapping, Sequence, Tuple
 
 import torch
+import torch.functional as F
 from monai.config import KeysCollection
 from monai.config.type_definitions import NdarrayOrTensor
 from monai.transforms.transform import MapTransform
 import numpy as np
 
-__all__ = ["ConvertToMultiChannelBasedOnBratsClassesd", "SlidingWindowsd"]
+__all__ = ["ConvertLabelsToOneHot", "ConvertToMultiChannelBasedOnBratsClassesd", "SlidingWindowsd"]
+
+
+class ConvertLabelsToOneHot(MapTransform):
+    def __init__(
+        self,
+        keys: KeysCollection,
+        allow_missing_keys: bool = False,
+        num_classes: int = 4,
+        remove_bg: bool = True
+    ):
+        super().__init__(keys, allow_missing_keys)
+        self.num_classes = num_classes
+        self.remove_bg = remove_bg
+    
+    def labels2onehot(self, mask_labels: torch.Tensor):
+        if len(mask_labels.shape) == 3:
+            c, w, h = mask_labels.shape
+        elif len(mask_labels.shape) == 4:
+            c, w, h, d = mask_labels.shape
+        elif len(mask_labels.shape) == 5:
+            b, c, w, h, d = mask_labels.shape
+        else:
+            raise ValueError
+        assert c == 1
+        if len(mask_labels.shape) == 3:
+            mask_onehot_labels =  F.one_hot(mask_labels.long(), num_classes=self.num_classes).permute(0, 3, 1, 2).contiguous().view(-1, w, h)
+            if self.remove_bg:
+                mask_onehot_labels = mask_onehot_labels[1:, :, :]
+        if len(mask_labels.shape) == 4:
+            mask_onehot_labels =  F.one_hot(mask_labels.long(), num_classes=self.num_classes).permute(0, 4, 1, 2, 3).contiguous().view(-1, w, h, d)
+            if self.remove_bg:
+                mask_onehot_labels = mask_onehot_labels[1:, :, :, :]
+        elif len(mask_labels.shape) == 5:
+            mask_onehot_labels = F.one_hot(mask_labels.long(), num_classes=self.num_classes).permute(0, 1, 5, 2, 3, 4).contiguous().view(b, -1, w, h, d)
+            if self.remove_bg:
+                mask_onehot_labels = mask_onehot_labels[:, 1:, :, :, :]
+        assert len(mask_labels.shape) == len(mask_onehot_labels.shape)
+        mask_onehot_labels = mask_onehot_labels.to(torch.uint8)
+        return mask_onehot_labels
+
+    def __call__(self, data):
+        d = dict(data)
+        for key in self.key_iterator(d):
+            d[key] = self.labels2onehot(d[key])
+        return d
+
 
 
 class ConvertToMultiChannelBasedOnBratsClassesd(MapTransform):

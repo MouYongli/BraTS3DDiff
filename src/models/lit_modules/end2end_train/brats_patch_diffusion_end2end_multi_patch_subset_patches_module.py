@@ -116,7 +116,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
             mode="classify", patch_res=self.patch_sizes, scale_loss=1.0
         )
         self.denoising_criterion = DenoisingLoss(diffusion=self.diffusion)
-        
+
         self.segment_criterion = MultiResPatchSegLoss(patch_res=self.patch_sizes, incl_mean=True,
                                     scale_loss=1./3, dice_batch=True, prefixes=['seg', 'masked_seg'])
 
@@ -269,7 +269,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         assert len(self.patch_sizes) == len(self.patch_emb_sizes) == len(self.start_eps) == \
                 len(self.end_eps) == len(self.num_epochs_use) == len(self.num_patch_samples)
 
-        wandb.watch(self, log='all', log_freq=20, log_graph=True)
+        wandb.watch(self, log='all', log_freq=20)
 
 
     def on_train_epoch_start(self):
@@ -670,13 +670,8 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         val_metrics.update(patch_classify_metrics)
         seg_metrics = self.segment_metric.compute_metrics()
         val_metrics.update(seg_metrics)
+        val_metrics['dice'] = val_metrics[f"seg_dice_res=mean"]
         self.log_scores(val_metrics, prefix="val", on_epoch=True, prog_bar=True)
-        self.log(
-            f"val/dice",
-            val_metrics["seg_dice_mean"],
-            on_epoch=True,
-            prog_bar=True,
-        )
 
 
     def test_step(self, batch):
@@ -708,14 +703,8 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
 
     def on_test_epoch_end(self):
         seg_metrics = self.segment_metric.compute_metrics()
+        seg_metrics['dice'] = seg_metrics[f"seg_dice_res=mean"]
         self.log_scores(seg_metrics, prefix="test", on_epoch=True, prog_bar=True)
-        self.log(
-            f"test/dice",
-            seg_metrics["seg_dice_mean"],
-            on_epoch=True,
-            prog_bar=True,
-        )
-
 
 
     def predict_step(self, batch):

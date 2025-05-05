@@ -27,7 +27,7 @@ im_channels:
   - t1c
   - t2w
 
-patch_sizes: [16, 32]
+patch_sizes: [16]
 
 sep: "-"
 ext: ".nii.gz"

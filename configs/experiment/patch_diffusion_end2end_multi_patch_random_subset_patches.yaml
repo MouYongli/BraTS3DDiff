@@ -1,0 +1,102 @@
+# @package _global_
+
+# to execute this experiment run:
+# python train.py experiment=example
+
+defaults:
+  - override /data: brats23_patch_diffusion_base
+  - override /model: patch_diffusion_base
+  - override /callbacks: default
+  - override /logger: ['csv', 'wandb']
+  - override /trainer: default
+  - override /paths: default
+
+
+# all parameters below will be merged with parameters from default configurations set above
+# this allows you to overwrite only specified parameters
+
+paths:
+  log_dir: ${paths.root_dir}/logs/bratseg_logs/patch_diffusion
+
+logger:
+  wandb:
+    tags: ${tags}
+    project: BraTS3DDiff
+    notes: ${notes}
+
+trainer:
+  accelerator: gpu
+  devices: [0]
+
+
+seed: 12345
+
+task_tag: "BraTS23-PatchDiffusion-End2End-PatchSize=16+32-Random_Subset_Patches-Test"
+
+notes: 'End-to-End patch diffusion training on random subset of 16 + 32 patches'
+
+tags: ['End2End', 'Random Subset Patches', '16']
+
+#data and model hparams
+roi_size: [128, 128, 128]
+patch_sizes: [16, 32]
+patch_emb_sizes: [6, 8]
+#patch sampling hparams
+start_eps: [0.1, 0.1]
+end_eps: [1e-20, 1e-20]
+num_epochs_use: [200, 200]
+num_samples: [128, 16]
+
+#unet_features: [32, 32, 64, 128, 256, 32]
+unet_features: [16, 16, 32, 64, 128, 16]
+
+ckpt_path: null
+
+data:
+  _target_: src.datasets.patch_tumor_classify_diffusion_datamodule_new_new.BraTSDataModule
+  batch_size: 1
+  patch_sizes: ${patch_sizes}
+  roi_size: ${roi_size}
+
+model:
+  _target_: src.models.lit_modules.end2end_train.brats_patch_diffusion_end2end_multi_patch_subset_patches_no_mean_loss_module.BraTSPatchTumorDiffusionLitModule
+
+  patchify_net:
+    _target_: src.models.networks.swinunetr.swinunetr_enc_1x1_conv.SwinUNETREnc128
+    final_patch_sizes: ${patch_sizes}
+
+  patch_up_net:
+    _target_: src.models.networks.patch_unet.patch_enc.PatchUpsample
+    in_sizes: ${patch_emb_sizes}
+    out_sizes: ${patch_sizes}
+    ups:
+      - _target_: src.models.networks.patch_unet.ups.Up6to16
+      - _target_: src.models.networks.patch_unet.ups.Up8to32_2
+
+  patch_emb_net:
+    _target_: src.models.networks.patch_unet.patch_enc.PatchUNetEncoder
+    features: ${unet_features}
+
+  patch_denoise_net:
+    _target_: src.models.networks.patch_unet.patch_unet_denoise.PatchDenoiseUNet
+    features: ${unet_features}
+
+  inferer:
+    _target_: monai.inferers.SlidingWindowInferer
+    roi_size: ${roi_size}
+    sw_batch_size: 2
+    overlap: 0.50
+
+  extra_kwargs:
+    patch_emb_sizes: ${patch_emb_sizes}
+    patch_thresh: 0.70
+    plot_grad_flow_freq: 1000
+    start_eps: ${start_eps}
+    end_eps: ${end_eps}
+    num_epochs_use: ${num_epochs_use}
+    num_samples: ${num_samples}
+
+
+
+
+

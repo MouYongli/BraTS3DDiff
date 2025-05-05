@@ -44,14 +44,14 @@ environment   = "working_dir=/home/staff/USERNAME/SUBDIR data_dir=/home/staff/US
 
 # If your job quits with an exit codes other then 0 (that means an error occured) it will be held. Without this it will be cancelled.
 
-#on_exit_hold = (ExitBySignal == True) || (ExitCode != 0)
-
+on_exit_hold = (ExitBySignal == True) || (ExitCode != 0)
+periodic_release = False
 
 ## A nice job will note change your priority. You can use this statement when you have enough time to wait for your results
 nice_user = True
 
 # Attention: You can only set one requirement line. Add more requirements by using && e.g.
-requirements = (CUDAGlobalMemoryMb > 20000) && POOL =="cluster"
+requirements = (GPUs_GlobalMemoryMb > 14000) && POOL == "cluster"
 
 
 # required number of CPU cores

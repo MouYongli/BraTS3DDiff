@@ -1,6 +1,8 @@
 from operator import itemgetter
 
 import torch
+import torch.functional as F
+
 import torch.distributed as dist
 from typing import Sequence
 import numpy as np
@@ -237,6 +239,25 @@ def add_background_batch(fg:torch.Tensor, orig_img_shape:Sequence[int], fg_start
     return add_background(fg.squeeze(0), orig_img_shape[0], fg_start[0], fg_end[0]).unsqueeze(0)
 
 
+def labels2onehot(mask_labels, num_classes=4):
+    if len(mask_labels.shape) == 3:
+        c, w, h = mask_labels.shape
+    elif len(mask_labels.shape) == 4:
+        c, w, h, d = mask_labels.shape
+    elif len(mask_labels.shape) == 5:
+        b, c, w, h, d = mask_labels.shape
+    else:
+        raise ValueError
+    assert c == 1
+    if len(mask_labels.shape) == 3:
+        mask_onehot_labels =  F.one_hot(mask_labels.long(), num_classes=num_classes).permute(0, 3, 1, 2).contiguous().view(-1, w, h)[1:, :, :]
+    if len(mask_labels.shape) == 4:
+        mask_onehot_labels =  F.one_hot(mask_labels.long(), num_classes=num_classes).permute(0, 4, 1, 2, 3).contiguous().view(-1, w, h, d)[1:, :, :, :]
+    elif len(mask_labels.shape) == 5:
+        mask_onehot_labels = F.one_hot(mask_labels.long(), num_classes=num_classes).permute(0, 1, 5, 2, 3, 4).contiguous().view(b, -1, w, h, d)[:, 1:, :, :, :]
+    assert len(mask_labels.shape) == len(mask_onehot_labels.shape)
+    mask_onehot_labels = mask_onehot_labels.to(torch.uint8)
+    return mask_onehot_labels
 
 
 def window2patches(win, patch_size=16):
@@ -493,7 +514,7 @@ def fill_in_window_with_patches(window,patch_labels,fill_patches):
 
 
 
-def sample_patch_indices(patch_tumor_vol_fracs, eps=0.0, num_samples=None):
+def sample_patch_indices(patch_tumor_vol_fracs, eps=1e-20, num_samples=None):
     #patch_tumor_vol_fracs = (B,1,W_,H_,D_)
     wts = patch_tumor_vol_fracs.view(1,-1).squeeze(dim=0)
     wts = wts + eps
@@ -501,7 +522,7 @@ def sample_patch_indices(patch_tumor_vol_fracs, eps=0.0, num_samples=None):
         num_samples = wts.shape[0] // 2
     sampled_indices_flat = torch.multinomial(wts, num_samples=num_samples)
     sampled_indices_nd = torch.unravel_index(sampled_indices_flat, patch_tumor_vol_fracs.shape)
-    return sampled_indices_flat, sampled_indices_nd
+    return sampled_indices_flat, sampled_indices_nd    
 
 
 def get_vals_from_idxs(x:torch.Tensor, idxs:tuple[torch.Tensor]):
@@ -569,9 +590,10 @@ def fold_patches(patches, img_shape, up:int=2):
 def compute_grad_norm(model):
     total_norm = 0.0
     for p in model.parameters():
-        param_norm = p.grad.data.norm(2)
-        total_norm += param_norm.item() ** 2
-    total_norm = total_norm ** (1. / 2)
+        if (p.requires_grad) and (p.grad is not None):
+            param_norm = p.grad.data.norm(2)
+            total_norm += param_norm.item() ** 2
+        total_norm = total_norm ** (1. / 2)
     return total_norm
 
 
@@ -588,7 +610,7 @@ def plot_grad_flow(model):
     norm_grads = []
     layers = []
     for n, p in model.named_parameters():
-        if(p.requires_grad) and ("bias" not in n):
+        if(p.requires_grad) and (p.grad is not None) and ("bias" not in n):
             layers.append(n)
             grad_ = p.grad.detach().cpu()
             ave_grads.append(grad_.abs().mean())
@@ -613,6 +635,8 @@ def plot_grad_flow(model):
     fig.set_size_inches(18.5, 10.5, forward=True)
     fig.tight_layout()
     #fig.savefig(f'/home/ca550013/Master-Thesis/Projects/BraTS3DDiff/tmp/{tag}.png')
+    plt.close('all')
+    plt.clf()
 
     plt.figure()
     plt.bar(np.arange(len(max_grads)), norm_grads, alpha=0.2, lw=1, color="blue")
@@ -631,6 +655,8 @@ def plot_grad_flow(model):
     fig1.set_size_inches(18.5, 10.5, forward=True)
     fig1.tight_layout()
     #fig1.savefig(f'/home/ca550013/Master-Thesis/Projects/BraTS3DDiff/tmp/{tag}_norms.png')
+    plt.close('all')
+    plt.clf()
 
     return fig, fig1
 

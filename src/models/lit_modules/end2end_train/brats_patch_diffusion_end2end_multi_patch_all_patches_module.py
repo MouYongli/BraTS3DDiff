@@ -6,6 +6,7 @@ import json
 import numpy as np
 import torch
 from lightning import LightningModule
+import wandb
 
 from src.models.diffusion.enums import ModelMeanType
 from src.models.diffusion.timestep_sampler import (
@@ -30,14 +31,14 @@ from monai.inferers.inferer import SlidingWindowInferer
 from src.utils.model_utils import (
     compute_uncertainty_based_fusion,
     get_all_patches,
-    get_nonzero_patches,
     window2patches,
-    fill_in_window_with_patches,
     add_background_batch,
     get_vals_from_idxs,
     ravel_tuple_index,
     patches2window,
-    fold_patches
+    fold_patches,
+    plot_grad_flow,
+    compute_grad_norm
     
 )
 from src.utils import RankedLogger
@@ -121,7 +122,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         self.patch_classify_metric = MultiResPatchClassifyMetrics(patch_sizes=self.patch_sizes,
                                             sigmoid=True, thresh=self.hparams.extra_kwargs.patch_thresh)
 
-        self.segment_metric = MultiResSegmentMetrics(patch_sizes=self.patch_sizes, incl_mean=False,
+        self.segment_metric = MultiResSegmentMetrics(patch_sizes=self.patch_sizes, incl_mean=True,
                                                      channels=self.hparams.extra_kwargs.subregions_names,
                                                      sigmoid=False, thresh=0.5)
 
@@ -256,6 +257,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         # by default lightning executes validation step sanity checks before training starts,
         # so it's worth to make sure validation metrics don't store results from these checks
         log.info("Started Training...")
+        wandb.watch(self, log='all', log_freq=20)
 
 
     def model_step(self, batch) -> torch.Tensor:
@@ -427,6 +429,19 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         # return loss or backpropagation will fail
         return loss_dict["loss"]
 
+    def on_after_backward(self):
+        #plot gradient statistics
+        if self.global_step % self.hparams.extra_kwargs.plot_grad_flow_freq == 0:
+            models = {'patchify_net':self.patchify_net,'patch_up_net':self.patch_up_net,
+                        'patch_emb_net':self.patch_emb_net,'patch_denoise_net':self.patch_denoise_net}
+            log_dict = {}
+            for model_name, model in models.items():
+                fig, fig_norm = plot_grad_flow(model)
+                log_dict[f'gradient_stats/grad_stats_{model_name}'] = wandb.Image(fig)
+                log_dict[f'gradient_stats/grad_norm_{model_name}'] = wandb.Image(fig_norm)
+                log_dict[f'gradient_stats/total_grad_norm_{model_name}'] = compute_grad_norm(model)        
+            wandb.log(log_dict)
+
 
     def predict_seg_mask(self, image, ret_patch_labels=False):
         """
@@ -582,7 +597,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         val_metrics.update(patch_classify_metrics)
         seg_metrics = self.segment_metric.compute_metrics()
         val_metrics.update(seg_metrics)
-        val_metrics['dice'] = val_metrics[f"seg_dice_res={self.patch_sizes[0]}"]
+        val_metrics['dice'] = val_metrics[f"seg_dice_res=mean"]
         self.log_scores(val_metrics, prefix="val", on_epoch=True, prog_bar=True)
 
 
@@ -615,7 +630,7 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
 
     def on_test_epoch_end(self):
         seg_metrics = self.segment_metric.compute_metrics()
-        seg_metrics['dice'] = seg_metrics[f"seg_dice_res={self.patch_sizes[0]}"]
+        seg_metrics['dice'] = seg_metrics[f"seg_dice_res=mean"]
         self.log_scores(seg_metrics, prefix="test", on_epoch=True, prog_bar=True)
 
 

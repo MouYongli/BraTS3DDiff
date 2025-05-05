@@ -5,8 +5,9 @@ from torch import nn
 from monai.metrics import DiceMetric, CumulativeIterationMetric
 from torchmetrics.metric import Metric
 from overrides import override
+from abc import ABC, abstractmethod
 
-class MultiResBaseMetrics(nn.Module):
+class MultiResBaseMetrics(ABC, nn.Module):
     '''
         Compute metrics on Multiple Patch Resolutions Base Class
         Accumulate metrics batch-by-batch, aggregate at the end
@@ -25,12 +26,11 @@ class MultiResBaseMetrics(nn.Module):
         self.metrics = self._get_metrics_objs_dict(patch_sizes, metrics_names)
         self.no_binarize = no_binarize #some metrics like AP, AUCROC need to be computed on raw prob scores
 
-    @classmethod
-    def _get_metrics_objs_dict(cls, patch_sizes, metrics_names):
-        return {patch_size: {name: cls._get_metric_obj(name) for name in metrics_names} for patch_size in patch_sizes}
+    def _get_metrics_objs_dict(self, patch_sizes, metrics_names):
+        return {patch_size: {name: self._get_metric_obj(name) for name in metrics_names} for patch_size in patch_sizes}
 
-    @staticmethod
-    def _get_metric_obj(metric_name):
+    @abstractmethod
+    def _get_metric_obj(self, metric_name):
         #implement it in the downstream class
         return None
 
@@ -165,8 +165,8 @@ class MultiResSegmentMetrics(MultiResBaseMetrics):
 
         self.channels = channels
 
-    @staticmethod
-    def _get_metric_obj(metric):
+
+    def _get_metric_obj(self, metric):
         if metric == 'dice':
             return DiceMetric(
                 include_background=True,
@@ -223,8 +223,8 @@ class MultiResPatchClassifyMetrics(MultiResBaseMetrics):
                          thresh=thresh,
                          no_binarize=['ap', 'aucroc'])
 
-    @staticmethod
-    def _get_metric_obj(metric):
+
+    def _get_metric_obj(self, metric):
         if metric == 'cm' or metric == 'confmat':
             return BinaryConfusionMatrix()
         elif metric == 'ap':
@@ -253,6 +253,7 @@ class MultiResPatchClassifyMetrics(MultiResBaseMetrics):
             confmats[patch_size] = dict(zip(['tn','fp','fn','tp'], confmats[patch_size].tolist()))
 
         return metrics_dict, confmats
+
 
 
 

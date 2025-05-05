@@ -48,6 +48,556 @@ __all__ = [
 ]
 
 
+class FeatEncoderBlock(nn.Module):
+    '''
+    Pointwise encode the patch features output from an intermediate stage of a SwinT block
+    > Consists of "encoder" block (1x1x1 convs) to increase num of channels (patch feature dim),
+    > then the encoded patch features are passed to another set of "out" blocks (1x1x1 convs) to produce multi task patch outputs
+    '''
+    def __init__(
+        self,
+        in_channels: int,
+        feat_channels: int,
+        out_channels: Sequence[int],
+        norm_name: tuple | str = "instance",
+        spatial_dims: int=3,
+    ):
+        super().__init__()
+
+        self.encoder = UnetrBasicBlock(
+                spatial_dims=spatial_dims,
+                in_channels=in_channels,
+                out_channels=feat_channels,
+                kernel_size=1,
+                stride=1,
+                norm_name=norm_name,
+                res_block=True,
+        )
+
+        self.outs = nn.ModuleDict(
+            {
+                f'out{i}' : UnetOutBlock(
+                    spatial_dims=spatial_dims,
+                    in_channels=feat_channels,
+                    out_channels=c,
+                )
+                for i, c in enumerate(out_channels)
+            }
+        )
+
+    def forward(self, x):
+        x = self.encoder(x)
+        outs = [out(x) for _, out in self.outs.items()]
+        return x, outs
+
+
+class SwinUNETREnc128MultiTask(nn.Module):
+    """
+    Swin UNETR based on: "Hatamizadeh et al.,
+    Swin UNETR: Swin Transformers for Semantic Segmentation of Brain Tumors in MRI Images
+    <https://arxiv.org/abs/2201.01266>"
+    
+    SwinT is used as backbone, and the intermediate patch features (of a certain resolution), output from a stage,
+    is passed to its corresponding FeatureEncoder blocks to produce encoded patch features and Multiple Outputs
+
+    [A stage has its own encoder, and out networks associated with it]
+    [The outputs can later used for MultiTask learning (binary classification, multilabel classification etc...)]
+
+    """
+    
+
+    patch_size: Final[int] = 2
+
+    def __init__(
+        self,
+        img_size: Sequence[int] | int,
+        in_channels: int,
+        out_channels: Sequence[int] = (1, 3),
+        depths: Sequence[int] = (2, 2, 2, 2),
+        num_heads: Sequence[int] = (3, 6, 12, 24),
+        feature_size: int = 24,
+        norm_name: tuple | str = "instance",
+        drop_rate: float = 0.0,
+        attn_drop_rate: float = 0.0,
+        dropout_path_rate: float = 0.0,
+        normalize: bool = True,
+        use_checkpoint: bool = False,
+        spatial_dims: int = 3,
+        downsample="merging",
+        use_v2=False,
+        clamp_out=False,
+        final_patch_sizes: Sequence[int] = (16, 32),
+        final_patch_emb_sizes: Sequence[int] = (216, 512),
+    ) -> None: 
+        """
+        Args:
+            img_size: spatial dimension of input image.
+                This argument is only used for checking that the input image size is divisible by the patch size.
+                The tensor passed to forward() can have a dynamic shape as long as its spatial dimensions are divisible by 2**5.
+                It will be removed in an upcoming version.
+            in_channels: dimension of input channels.
+            out_channels: dimension of output channels.
+            feature_size: dimension of network feature size.
+            depths: number of layers in each stage.
+            num_heads: number of attention heads.
+            norm_name: feature normalization type and arguments.
+            drop_rate: dropout rate.
+            attn_drop_rate: attention dropout rate.
+            dropout_path_rate: drop path rate.
+            normalize: normalize output intermediate features in each stage.
+            use_checkpoint: use gradient checkpointing for reduced memory usage.
+            spatial_dims: number of spatial dims.
+            downsample: module used for downsampling, available options are `"mergingv2"`, `"merging"` and a
+                user-specified `nn.Module` following the API defined in :py:class:`monai.networks.nets.PatchMerging`.
+                The default is currently `"merging"` (the original version defined in v0.9.0).
+            use_v2: using swinunetr_v2, which adds a residual convolution block at the beggining of each swin stage.
+
+        Examples::
+
+            # for 3D single channel input with size (96,96,96), 4-channel output and feature size of 48.
+            >>> net = SwinUNETR(img_size=(96,96,96), in_channels=1, out_channels=4, feature_size=48)
+
+            # for 3D 4-channel input with size (128,128,128), 3-channel output and (2,4,2,2) layers in each stage.
+            >>> net = SwinUNETR(img_size=(128,128,128), in_channels=4, out_channels=3, depths=(2,4,2,2))
+
+            # for 2D single channel input with size (96,96), 2-channel output and gradient checkpointing.
+            >>> net = SwinUNETR(img_size=(96,96), in_channels=3, out_channels=2, use_checkpoint=True, spatial_dims=2)
+        
+        Outputs a feature maps of 16*16*16 and 32*32*32 patches from a 128*128*128 input volume.
+        A 16*16*16 patch token is encoded as a 216 (6*6*6) dim vector, and a 32*32*32 patch token is encoded as a 512 (8*8*8) dim vector
+        These specific values are chosen so that the 1D patch embeddings can be reshaped to a 3D tensor.
+
+        """
+
+        super().__init__()
+
+        img_size = ensure_tuple_rep(img_size, spatial_dims)
+        patch_sizes = ensure_tuple_rep(self.patch_size, spatial_dims)
+        window_size = ensure_tuple_rep(7, spatial_dims)
+
+        assert img_size == (128, 128, 128), "Input image size must be equal to (128, 128, 128)."
+
+        self.clamp_out = clamp_out
+
+
+        if spatial_dims not in (2, 3):
+            raise ValueError("spatial dimension should be 2 or 3.")
+
+        self._check_input_size(img_size)
+
+        if not (0 <= drop_rate <= 1):
+            raise ValueError("dropout rate should be between 0 and 1.")
+
+        if not (0 <= attn_drop_rate <= 1):
+            raise ValueError("attention dropout rate should be between 0 and 1.")
+
+        if not (0 <= dropout_path_rate <= 1):
+            raise ValueError("drop path rate should be between 0 and 1.")
+
+        if feature_size % 12 != 0:
+            raise ValueError("feature_size should be divisible by 12.")
+
+        self.normalize = normalize
+
+        self.swinViT = SwinTransformer(
+            in_chans=in_channels,
+            embed_dim=feature_size,
+            window_size=window_size,
+            patch_size=patch_sizes,
+            depths=depths,
+            num_heads=num_heads,
+            mlp_ratio=4.0,
+            qkv_bias=True,
+            drop_rate=drop_rate,
+            attn_drop_rate=attn_drop_rate,
+            drop_path_rate=dropout_path_rate,
+            norm_layer=nn.LayerNorm,
+            use_checkpoint=use_checkpoint,
+            spatial_dims=spatial_dims,
+            downsample=(
+                look_up_option(downsample, MERGING_MODE)
+                if isinstance(downsample, str)
+                else downsample
+            ),
+            use_v2=use_v2,
+        )
+
+        self.spatial_dims = spatial_dims
+
+        self.patch_size_2_swinViT_stage = {8: 2, 16: 3, 32: 4}
+        assert final_patch_sizes in list(self.patch_size_2_swinViT_stage.keys())
+        assert len(final_patch_sizes) == len(final_patch_emb_sizes)
+
+        self.final_patch_sizes = final_patch_sizes
+        self.final_patch_emb_sizes = final_patch_emb_sizes
+
+        self.feat_enc_in_chns = [(2**self.patch_size_2_swinViT_stage[_patch_size])*feature_size for _patch_size in self.final_patch_sizes]
+
+        self.feat_encoders = nn.ModuleDict(
+            {
+                f"encoder_block_res_{_patch_size}": FeatEncoderBlock(
+                    in_channels=_in_chns,
+                    feat_channels=_feat_chns,
+                    out_channels=out_channels,
+                    norm_name=norm_name,
+                    spatial_dims=spatial_dims,
+                )
+                for _patch_size, _in_chns, _feat_chns in zip(
+                    self.final_patch_sizes, self.feat_enc_in_chns, self.final_patch_emb_sizes
+                )
+            }
+        )
+        
+        self._test = True
+
+
+    def load_from(self, weights):
+        with torch.no_grad():
+            self.swinViT.patch_embed.proj.weight.copy_(
+                weights["state_dict"]["module.patch_embed.proj.weight"]
+            )
+            self.swinViT.patch_embed.proj.bias.copy_(
+                weights["state_dict"]["module.patch_embed.proj.bias"]
+            )
+            for bname, block in self.swinViT.layers1[0].blocks.named_children():
+                block.load_from(weights, n_block=bname, layer="layers1")
+            self.swinViT.layers1[0].downsample.reduction.weight.copy_(
+                weights["state_dict"]["module.layers1.0.downsample.reduction.weight"]
+            )
+            self.swinViT.layers1[0].downsample.norm.weight.copy_(
+                weights["state_dict"]["module.layers1.0.downsample.norm.weight"]
+            )
+            self.swinViT.layers1[0].downsample.norm.bias.copy_(
+                weights["state_dict"]["module.layers1.0.downsample.norm.bias"]
+            )
+            for bname, block in self.swinViT.layers2[0].blocks.named_children():
+                block.load_from(weights, n_block=bname, layer="layers2")
+            self.swinViT.layers2[0].downsample.reduction.weight.copy_(
+                weights["state_dict"]["module.layers2.0.downsample.reduction.weight"]
+            )
+            self.swinViT.layers2[0].downsample.norm.weight.copy_(
+                weights["state_dict"]["module.layers2.0.downsample.norm.weight"]
+            )
+            self.swinViT.layers2[0].downsample.norm.bias.copy_(
+                weights["state_dict"]["module.layers2.0.downsample.norm.bias"]
+            )
+            for bname, block in self.swinViT.layers3[0].blocks.named_children():
+                block.load_from(weights, n_block=bname, layer="layers3")
+            self.swinViT.layers3[0].downsample.reduction.weight.copy_(
+                weights["state_dict"]["module.layers3.0.downsample.reduction.weight"]
+            )
+            self.swinViT.layers3[0].downsample.norm.weight.copy_(
+                weights["state_dict"]["module.layers3.0.downsample.norm.weight"]
+            )
+            self.swinViT.layers3[0].downsample.norm.bias.copy_(
+                weights["state_dict"]["module.layers3.0.downsample.norm.bias"]
+            )
+            for bname, block in self.swinViT.layers4[0].blocks.named_children():
+                block.load_from(weights, n_block=bname, layer="layers4")
+            self.swinViT.layers4[0].downsample.reduction.weight.copy_(
+                weights["state_dict"]["module.layers4.0.downsample.reduction.weight"]
+            )
+            self.swinViT.layers4[0].downsample.norm.weight.copy_(
+                weights["state_dict"]["module.layers4.0.downsample.norm.weight"]
+            )
+            self.swinViT.layers4[0].downsample.norm.bias.copy_(
+                weights["state_dict"]["module.layers4.0.downsample.norm.bias"]
+            )
+
+    @torch.jit.unused
+    def _check_input_size(self, spatial_shape):
+        img_size = np.array(spatial_shape)
+        remainder = (img_size % np.power(self.patch_size, 5)) > 0
+        if remainder.any():
+            wrong_dims = (np.where(remainder)[0] + 2).tolist()
+            raise ValueError(
+                f"spatial dimensions {wrong_dims} of input image (spatial shape: {spatial_shape})"
+                f" must be divisible by {self.patch_size}**5."
+            )
+
+    def forward(self, x_in:torch.Tensor, patch_sizes:list=None):
+        if not torch.jit.is_scripting():
+            self._check_input_size(x_in.shape[2:])
+
+        assert x_in.shape[2:] == (128, 128, 128), "Input image size must be equal to (128, 128, 128)."
+    
+        hidden_states_out = self.swinViT(x_in, self.normalize)
+
+        if patch_sizes is None:
+            patch_sizes = self.final_patch_sizes
+
+        ret = {'embeddings': {}, 'outs': {}}
+        for patch_size in patch_sizes:
+            stage = self.patch_size_2_swinViT_stage[patch_size]
+            patch_features, patch_outs = self.feat_encoders[f'encoder_block_res_{patch_size}'](hidden_states_out[stage])
+            ret['embeddings'][patch_size] = patch_features
+            ret['outs'][patch_size] = patch_outs
+
+            if self._test:
+                tgt_shape = tuple(x_in.shape[idx+2]//patch_size for idx in range(self.spatial_dims))
+                assert patch_features.shape[2:] == tgt_shape
+                for _out in patch_outs:
+                    assert _out.shape[2:] == tgt_shape
+
+        return ret
+
+
+
+class NewSwinUNETREnc128(nn.Module):
+    """
+    Swin UNETR based on: "Hatamizadeh et al.,
+    Swin UNETR: Swin Transformers for Semantic Segmentation of Brain Tumors in MRI Images
+    <https://arxiv.org/abs/2201.01266>"
+    """
+
+    patch_size: Final[int] = 2
+
+    def __init__(
+        self,
+        img_size: Sequence[int] | int,
+        in_channels: int,
+        out_channels: int = 1,
+        depths: Sequence[int] = (2, 2, 2, 2),
+        num_heads: Sequence[int] = (3, 6, 12, 24),
+        feature_size: int = 24,
+        norm_name: tuple | str = "instance",
+        drop_rate: float = 0.0,
+        attn_drop_rate: float = 0.0,
+        dropout_path_rate: float = 0.0,
+        normalize: bool = True,
+        use_checkpoint: bool = False,
+        spatial_dims: int = 3,
+        downsample="merging",
+        use_v2=False,
+        clamp_out=False,
+    ) -> None: 
+        """
+        Args:
+            img_size: spatial dimension of input image.
+                This argument is only used for checking that the input image size is divisible by the patch size.
+                The tensor passed to forward() can have a dynamic shape as long as its spatial dimensions are divisible by 2**5.
+                It will be removed in an upcoming version.
+            in_channels: dimension of input channels.
+            out_channels: dimension of output channels.
+            feature_size: dimension of network feature size.
+            depths: number of layers in each stage.
+            num_heads: number of attention heads.
+            norm_name: feature normalization type and arguments.
+            drop_rate: dropout rate.
+            attn_drop_rate: attention dropout rate.
+            dropout_path_rate: drop path rate.
+            normalize: normalize output intermediate features in each stage.
+            use_checkpoint: use gradient checkpointing for reduced memory usage.
+            spatial_dims: number of spatial dims.
+            downsample: module used for downsampling, available options are `"mergingv2"`, `"merging"` and a
+                user-specified `nn.Module` following the API defined in :py:class:`monai.networks.nets.PatchMerging`.
+                The default is currently `"merging"` (the original version defined in v0.9.0).
+            use_v2: using swinunetr_v2, which adds a residual convolution block at the beggining of each swin stage.
+
+        Examples::
+
+            # for 3D single channel input with size (96,96,96), 4-channel output and feature size of 48.
+            >>> net = SwinUNETR(img_size=(96,96,96), in_channels=1, out_channels=4, feature_size=48)
+
+            # for 3D 4-channel input with size (128,128,128), 3-channel output and (2,4,2,2) layers in each stage.
+            >>> net = SwinUNETR(img_size=(128,128,128), in_channels=4, out_channels=3, depths=(2,4,2,2))
+
+            # for 2D single channel input with size (96,96), 2-channel output and gradient checkpointing.
+            >>> net = SwinUNETR(img_size=(96,96), in_channels=3, out_channels=2, use_checkpoint=True, spatial_dims=2)
+        
+        Outputs a feature maps of 16*16*16 and 32*32*32 patches from a 128*128*128 input volume.
+        A 16*16*16 patch token is encoded as a 216 (6*6*6) dim vector, and a 32*32*32 patch token is encoded as a 512 (8*8*8) dim vector
+        These specific values are chosen so that the 1D patch embeddings can be reshaped to a 3D tensor.
+
+        """
+
+        super().__init__()
+
+        img_size = ensure_tuple_rep(img_size, spatial_dims)
+        patch_sizes = ensure_tuple_rep(self.patch_size, spatial_dims)
+        window_size = ensure_tuple_rep(7, spatial_dims)
+
+        assert img_size == (128, 128, 128), "Input image size must be equal to (128, 128, 128)."
+
+        self.clamp_out = clamp_out
+
+        self.final_patch_emb_sizes:Final[dict] = {16:216, 32:512}
+
+        if spatial_dims not in (2, 3):
+            raise ValueError("spatial dimension should be 2 or 3.")
+
+        self._check_input_size(img_size)
+
+        if not (0 <= drop_rate <= 1):
+            raise ValueError("dropout rate should be between 0 and 1.")
+
+        if not (0 <= attn_drop_rate <= 1):
+            raise ValueError("attention dropout rate should be between 0 and 1.")
+
+        if not (0 <= dropout_path_rate <= 1):
+            raise ValueError("drop path rate should be between 0 and 1.")
+
+        if feature_size % 12 != 0:
+            raise ValueError("feature_size should be divisible by 12.")
+
+        self.normalize = normalize
+
+        self.swinViT = SwinTransformer(
+            in_chans=in_channels,
+            embed_dim=feature_size,
+            window_size=window_size,
+            patch_size=patch_sizes,
+            depths=depths,
+            num_heads=num_heads,
+            mlp_ratio=4.0,
+            qkv_bias=True,
+            drop_rate=drop_rate,
+            attn_drop_rate=attn_drop_rate,
+            drop_path_rate=dropout_path_rate,
+            norm_layer=nn.LayerNorm,
+            use_checkpoint=use_checkpoint,
+            spatial_dims=spatial_dims,
+            downsample=(
+                look_up_option(downsample, MERGING_MODE)
+                if isinstance(downsample, str)
+                else downsample
+            ),
+            use_v2=use_v2,
+        )
+
+        #upsample patch feature maps using 1x1 conv
+        #then another 1x1 conv to reduce num of feature maps to 1
+        #using 1x1 convs reduces num of params, but increases GPU memory consumption (why ?)
+        self.encoder3 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=8 * feature_size,
+            out_channels=self.final_patch_emb_sizes[16],
+            kernel_size=1,
+            stride=1,
+            norm_name=norm_name,
+            res_block=True,
+        )
+
+        self.out3 = UnetOutBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.final_patch_emb_sizes[16],
+            out_channels=out_channels,
+        )
+
+        self.encoder4 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=16 * feature_size,
+            out_channels=self.final_patch_emb_sizes[32],
+            kernel_size=1,
+            stride=1,
+            norm_name=norm_name,
+            res_block=True,
+        )
+
+        self.out4 = UnetOutBlock(
+            spatial_dims=spatial_dims,
+            in_channels=self.final_patch_emb_sizes[32],
+            out_channels=out_channels,
+        )
+
+    def load_from(self, weights):
+        with torch.no_grad():
+            self.swinViT.patch_embed.proj.weight.copy_(
+                weights["state_dict"]["module.patch_embed.proj.weight"]
+            )
+            self.swinViT.patch_embed.proj.bias.copy_(
+                weights["state_dict"]["module.patch_embed.proj.bias"]
+            )
+            for bname, block in self.swinViT.layers1[0].blocks.named_children():
+                block.load_from(weights, n_block=bname, layer="layers1")
+            self.swinViT.layers1[0].downsample.reduction.weight.copy_(
+                weights["state_dict"]["module.layers1.0.downsample.reduction.weight"]
+            )
+            self.swinViT.layers1[0].downsample.norm.weight.copy_(
+                weights["state_dict"]["module.layers1.0.downsample.norm.weight"]
+            )
+            self.swinViT.layers1[0].downsample.norm.bias.copy_(
+                weights["state_dict"]["module.layers1.0.downsample.norm.bias"]
+            )
+            for bname, block in self.swinViT.layers2[0].blocks.named_children():
+                block.load_from(weights, n_block=bname, layer="layers2")
+            self.swinViT.layers2[0].downsample.reduction.weight.copy_(
+                weights["state_dict"]["module.layers2.0.downsample.reduction.weight"]
+            )
+            self.swinViT.layers2[0].downsample.norm.weight.copy_(
+                weights["state_dict"]["module.layers2.0.downsample.norm.weight"]
+            )
+            self.swinViT.layers2[0].downsample.norm.bias.copy_(
+                weights["state_dict"]["module.layers2.0.downsample.norm.bias"]
+            )
+            for bname, block in self.swinViT.layers3[0].blocks.named_children():
+                block.load_from(weights, n_block=bname, layer="layers3")
+            self.swinViT.layers3[0].downsample.reduction.weight.copy_(
+                weights["state_dict"]["module.layers3.0.downsample.reduction.weight"]
+            )
+            self.swinViT.layers3[0].downsample.norm.weight.copy_(
+                weights["state_dict"]["module.layers3.0.downsample.norm.weight"]
+            )
+            self.swinViT.layers3[0].downsample.norm.bias.copy_(
+                weights["state_dict"]["module.layers3.0.downsample.norm.bias"]
+            )
+            for bname, block in self.swinViT.layers4[0].blocks.named_children():
+                block.load_from(weights, n_block=bname, layer="layers4")
+            self.swinViT.layers4[0].downsample.reduction.weight.copy_(
+                weights["state_dict"]["module.layers4.0.downsample.reduction.weight"]
+            )
+            self.swinViT.layers4[0].downsample.norm.weight.copy_(
+                weights["state_dict"]["module.layers4.0.downsample.norm.weight"]
+            )
+            self.swinViT.layers4[0].downsample.norm.bias.copy_(
+                weights["state_dict"]["module.layers4.0.downsample.norm.bias"]
+            )
+
+    @torch.jit.unused
+    def _check_input_size(self, spatial_shape):
+        img_size = np.array(spatial_shape)
+        remainder = (img_size % np.power(self.patch_size, 5)) > 0
+        if remainder.any():
+            wrong_dims = (np.where(remainder)[0] + 2).tolist()
+            raise ValueError(
+                f"spatial dimensions {wrong_dims} of input image (spatial shape: {spatial_shape})"
+                f" must be divisible by {self.patch_size}**5."
+            )
+
+    def forward(self, x_in, patch_sizes=[16, 32]):
+        if not torch.jit.is_scripting():
+            self._check_input_size(x_in.shape[2:])
+
+        assert x_in.shape[2:] == (128, 128, 128), "Input image size must be equal to (128, 128, 128)."
+    
+        hidden_states_out = self.swinViT(x_in, self.normalize)
+
+        ret = {'embeddings': {}, 'labels': {}}
+
+        if 16 in patch_sizes:
+            x_3 = self.encoder3(hidden_states_out[3])
+            x_3_out = self.out3(x_3)
+            assert x_3_out.shape[2:] == (8, 8, 8)
+
+            if self.clamp_out:
+                x_3_out = torch.clamp(x_3_out, 0, 1)
+
+            ret['embeddings']['16'] = x_3
+            ret['labels']['16'] = x_3_out
+
+        if 32 in patch_sizes:
+            x_4 = self.encoder4(hidden_states_out[4])
+            x_4_out = self.out4(x_4)
+            assert x_4_out.shape[2:] == (4, 4, 4)
+
+            if self.clamp_out:
+                x_4_out = torch.clamp(x_4_out, 0, 1)
+
+            ret['embeddings']['32'] = x_4
+            ret['labels']['32'] = x_4_out
+
+        return ret
+
 class SwinUNETREnc128(nn.Module):
     """
     Swin UNETR based on: "Hatamizadeh et al.,

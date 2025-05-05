@@ -1,4 +1,4 @@
-_target_: src.datasets.brats_datamodule.BraTSDataModule
+_target_: src.datasets.archives.brats_datamodule.BraTSDataModule
 data_dir: ${paths.data_dir}/BraTS-Data/BraTS2023-GLI
 batch_size: 1
 val_split: 0.20

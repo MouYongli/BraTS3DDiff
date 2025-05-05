@@ -1,6 +1,6 @@
 _target_: src.datasets.brats_datamodule_new.BraTSDataModule
 data_dir: ${paths.data_dir}/BraTS-Data/BraTS2023-GLI
-batch_size: 2
+batch_size: 1
 val_split: 0.20
 roi_size: [128, 128, 128]
 num_workers: 1

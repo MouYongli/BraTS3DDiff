@@ -1,4 +1,4 @@
-_target_: src.models.lit_modules.current.brats_patch_diffusion_module-one_patch-subset_patches.BraTSPatchTumorDiffusionLitModule
+_target_: src.models.lit_modules.end2end_train.brats_patch_diffusion_end2end_one_patch_subset_patches_module.BraTSPatchTumorDiffusionLitModule
 optimizer:
   _target_: torch.optim.AdamW
   _partial_: true
@@ -81,7 +81,7 @@ inferer:
   _target_: monai.inferers.SlidingWindowInferer
   roi_size: ${data.roi_size}
   sw_batch_size: 2
-  overlap: 0.75
+  overlap: 0.50
 
 extra_kwargs:
   num_targets: ${data.num_targets}
@@ -92,7 +92,7 @@ extra_kwargs:
   patch_emb_sizes: [8]
   patch_thresh: 0.70
   subregions_names: ["WT", "TC", "ET"]
-  start_eps: 0.1
+  start_eps: 0.0090452
   end_eps: 1e-20
   num_epochs_use: 200
   num_samples: 32

@@ -7,6 +7,7 @@ import numpy as np
 import torch
 from lightning import LightningModule
 import wandb
+
 from src.models.diffusion.enums import ModelMeanType
 from src.models.diffusion.timestep_sampler import (
     LossAwareSampler,
@@ -30,7 +31,6 @@ from monai.inferers.inferer import SlidingWindowInferer
 from src.utils.model_utils import (
     compute_uncertainty_based_fusion,
     window2patches,
-    fill_in_window_with_patches,
     add_background_batch,
     sample_patch_indices,
     get_vals_from_idxs,
@@ -266,19 +266,25 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         self.num_epochs_use = [epochs-1 for epochs in self.hparams.extra_kwargs.num_epochs_use]
         self.num_patch_samples = self.hparams.extra_kwargs.num_samples
         self.curr_eps = [None]*len(self.patch_sizes)
+
         assert len(self.patch_sizes) == len(self.patch_emb_sizes) == len(self.start_eps) == \
                 len(self.end_eps) == len(self.num_epochs_use) == len(self.num_patch_samples)
 
-        wandb.watch(self, log='all', log_freq=20, log_graph=True)
+        self.start_epoch = self.trainer.current_epoch
+        self.eps_schedule_slope = [(start_eps - end_eps) / (num_epochs_use - self.start_epoch) for start_eps, end_eps, num_epochs_use in zip(self.start_eps, self.end_eps, self.num_epochs_use)]
+
+        wandb.watch(self, log='all', log_freq=20)
 
 
     def on_train_epoch_start(self):
-        for i, (start_eps, end_eps, num_epochs_use) in enumerate(zip(self.start_eps, self.end_eps, self.num_epochs_use)):
+        for i, (start_eps, end_eps, num_epochs_use, eps_schedule_slope) in enumerate(zip(self.start_eps, self.end_eps, self.num_epochs_use, self.eps_schedule_slope)):
             if self.trainer.current_epoch <= num_epochs_use:
                 #linear eps scheduling: reduce eps over epochs linearly
-                curr_eps = start_eps - ((start_eps-end_eps)*(self.trainer.current_epoch/num_epochs_use))
+                curr_eps = start_eps - (eps_schedule_slope*(self.trainer.current_epoch-self.start_epoch))
                 self.curr_eps[i] = curr_eps
-            self.log(f'patch_sample_res={self.patch_sizes[i]}/curr_eps', self.curr_eps[i],  on_epoch=True, prog_bar=True)
+            else:
+                self.curr_eps[i] = end_eps
+            self.log(f'patch_sample_res={self.patch_sizes[i]}/curr_eps', self.curr_eps[i], on_epoch=True, prog_bar=True)
 
 
     def _get_sampled_patches_stats(self, patch_size, patch_tumor_vol_fracs, patch_tumor_labels, sampled_patch_indices_nd):
@@ -489,7 +495,6 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
             wandb.log(log_dict)
 
 
-
     def predict_seg_mask(self, image, ret_patch_labels=False):
         """
         predict the segmentation mask for a given image window
@@ -644,13 +649,8 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         val_metrics.update(patch_classify_metrics)
         seg_metrics = self.segment_metric.compute_metrics()
         val_metrics.update(seg_metrics)
+        val_metrics['dice'] = val_metrics[f"seg_dice_res=mean"]
         self.log_scores(val_metrics, prefix="val", on_epoch=True, prog_bar=True)
-        self.log(
-            f"val/dice",
-            val_metrics["seg_dice_mean"],
-            on_epoch=True,
-            prog_bar=True,
-        )
 
 
     def test_step(self, batch):
@@ -682,13 +682,8 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
 
     def on_test_epoch_end(self):
         seg_metrics = self.segment_metric.compute_metrics()
+        seg_metrics['dice'] = seg_metrics[f"seg_dice_res=mean"]
         self.log_scores(seg_metrics, prefix="test", on_epoch=True, prog_bar=True)
-        self.log(
-            f"test/dice",
-            seg_metrics["seg_dice_mean"],
-            on_epoch=True,
-            prog_bar=True,
-        )
 
 
 

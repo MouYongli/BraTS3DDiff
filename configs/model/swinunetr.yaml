@@ -1,4 +1,4 @@
-_target_: src.models.brats_module.BraTSLitModule
+_target_: src.models.lit_modules.current.brats_module.BraTSLitModule
 optimizer:
   _target_: torch.optim.Adam
   _partial_: true
@@ -35,4 +35,4 @@ inferer:
   _target_: monai.inferers.SlidingWindowInferer
   roi_size: ${data.roi_size}
   sw_batch_size: 1
-  overlap: 0.25
+  overlap: 0.50

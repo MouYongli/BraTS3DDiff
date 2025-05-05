@@ -6,6 +6,7 @@ import json
 import numpy as np
 import torch
 from lightning import LightningModule
+import wandb
 
 from src.models.diffusion.enums import ModelMeanType
 from src.models.diffusion.timestep_sampler import (
@@ -36,9 +37,11 @@ from src.utils.model_utils import (
     get_vals_from_idxs,
     ravel_tuple_index,
     stable_divide,
-    patches2window
-    
+    patches2window,
+    plot_grad_flow,
+    compute_grad_norm
 )
+
 from src.utils import RankedLogger
 
 
@@ -265,11 +268,16 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         self.num_epochs_use = self.hparams.extra_kwargs.num_epochs_use - 1
         self.num_samples = self.hparams.extra_kwargs.num_samples
         self.eps = None
+        self.start_epoch = self.trainer.current_epoch
+        self.eps_schedule_slope = (self.start_eps - self.end_eps) / (self.num_epochs_use - self.start_epoch)
+        wandb.watch(self, log='all', log_freq=20)
 
     def on_train_epoch_start(self):
         if self.trainer.current_epoch <= self.num_epochs_use:
             #linear eps scheduling: reduce eps over epochs linearly
-            self.eps = self.start_eps - ((self.start_eps-self.end_eps)*(self.trainer.current_epoch/self.num_epochs_use))
+            self.eps = self.start_eps - (self.eps_schedule_slope*(self.trainer.current_epoch-self.start_epoch))
+        else:
+            self.eps = self.end_eps
         self.log('eps', self.eps,  on_epoch=True, prog_bar=True)
 
 
@@ -461,6 +469,30 @@ class BraTSPatchTumorDiffusionLitModule(LightningModule):
         # return loss or backpropagation will fail
         return loss_dict["loss"]
 
+    '''
+    def on_after_backward(self):
+        #plot gradient statistics
+        if self.global_step % self.hparams.extra_kwargs.plot_grad_flow_freq == 0:
+            models = {'patchify_net':self.patchify_net,'patch_up_net':self.patch_up_net,
+                        'patch_emb_net':self.patch_emb_net,'patch_denoise_net':self.patch_denoise_net}
+            log_dict = {}
+            for model_name, model in models.items():
+                fig, fig_norm = plot_grad_flow(model)
+                log_dict[f'gradient_stats/grad_stats_{model_name}'] = wandb.Image(fig)
+                log_dict[f'gradient_stats/grad_norm_{model_name}'] = wandb.Image(fig_norm)
+                log_dict[f'gradient_stats/total_grad_norm_{model_name}'] = compute_grad_norm(model)        
+            wandb.log(log_dict)
+    '''
+
+    def on_after_backward(self):
+        #plot gradient statistics
+        if self.global_step % self.hparams.extra_kwargs.log_grad_norm_freq == 0:
+            models = {'patchify_net':self.patchify_net,'patch_up_net':self.patch_up_net,
+                        'patch_emb_net':self.patch_emb_net,'patch_denoise_net':self.patch_denoise_net}
+            log_dict = {}
+            for model_name, model in models.items():
+                log_dict[f'total_grad_norm_{model_name}'] = compute_grad_norm(model)
+            self.log_scores(log_dict, prefix='gradient_stats', on_epoch=True, on_step=False)
 
     def predict_seg_mask(self, image, ret_patch_labels=False):
         """

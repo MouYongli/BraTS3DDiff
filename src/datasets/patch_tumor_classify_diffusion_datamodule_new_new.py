@@ -195,13 +195,6 @@ class BraTSDataset(Dataset):
         else:
             raise ValueError("mode must be in ['train', 'val', 'test', 'predict']")
 
-        '''
-        elif self.mode == "val":
-            data = self.read_data(self.image_path[index])
-            data = self.transforms(data)
-            _ , data["patch_tumor_labels"] = self.label_patches(data["mask"])
-            return data
-        '''
 
 class BraTSDataModule(pl.LightningDataModule):
     def __init__(

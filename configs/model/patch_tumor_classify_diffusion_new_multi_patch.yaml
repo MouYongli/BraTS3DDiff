@@ -1,4 +1,4 @@
-_target_: src.models.lit_modules.end2end_train.brats_patch_diffusion_end2end_multi_patch_all_patches_no_classify_loss_module.BraTSPatchTumorDiffusionLitModule
+_target_: src.models.lit_modules.end2end_train.brats_patch_diffusion_end2end_multi_patch_all_patches_module.BraTSPatchTumorDiffusionLitModule
 optimizer:
   _target_: torch.optim.AdamW
   _partial_: true
@@ -96,6 +96,7 @@ extra_kwargs:
   patch_emb_sizes: [6, 8]
   patch_thresh: 0.70
   subregions_names: ["WT", "TC", "ET"]
+  plot_grad_flow_freq: 1000
 
 # compile model for faster training with pytorch 2.0
 compile: false

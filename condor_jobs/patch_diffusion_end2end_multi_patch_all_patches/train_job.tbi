@@ -1,0 +1,96 @@
+######################################################################
+# Readme
+######################################################################
+# Execute this job:
+#   - connect to `nic` via ssh: `ssh username@nic` (enter passwd)
+#   - start job: `condor_submit /path/to/this/file.tbi`
+# 
+# Monitor jobs:
+#   - see machines: `condor_status`
+#   - see queue: `condor_q`
+#   - keep monitoring queue: `watch condor_q` (quit with ctrl + c)
+# 
+# Find out more at:
+# http://www.iac.es/sieinvens/siepedia/pmwiki.php?n=HOWTOs.CondorHowTo
+######################################################################
+
+
+######################################################################
+# Necessary parameters
+######################################################################
+
+# Shell script that you want to execute
+cmd = /home/students/sanyal/Master-Thesis/Projects/BraTS3DDiff/condor_jobs/patch_diffusion_end2end_multi_patch_all_patches/train_script.sh
+
+## command line arguments
+#args =
+
+# start directory
+initialdir = /home/students/sanyal/Master-Thesis/Projects/BraTS3DDiff
+
+# define output, error and log file
+output = /work/scratch/sanyal/logs/loc_$(cluster).$(Process)_out.log
+error = /work/scratch/sanyal/logs/loc_$(cluster).$(Process)_err.log
+log = /work/scratch/sanyal/logs/loc_$(cluster).$(Process)_log.log
+
+# working environments
+getenv        = True
+environment   = "working_dir=/home/staff/USERNAME/SUBDIR data_dir=/home/staff/USERNAME/SUBDIR"
+
+
+######################################################################
+# Optional parameters
+######################################################################
+
+# If your job quits with an exit codes other then 0 (that means an error occured) it will be held. Without this it will be cancelled.
+
+on_exit_hold = (ExitBySignal == True) || (ExitCode != 0)
+periodic_release = False
+max_retries = 0
+
+## A nice job will note change your priority. You can use this statement when you have enough time to wait for your results
+nice_user = True
+
+# Attention: You can only set one requirement line. Add more requirements by using && e.g.
+requirements = (GPUs_GlobalMemoryMb > 23000) && POOL == "cluster"
+
+
+# required number of CPU cores
+request_cpus = 1
+
+# required number of GPUs
+request_gpus = 1
+
+# required CPU RAM
+request_memory = 8 GB
+
+# required Disk space
+
+request_disk = 50 GB
+
+# criterion after which to choose the machine
+# e.g. `rank = memory` takes machine with largest RAM
+#rank = memory
+
+# number of seconds to wait before executing job 
+# deferral_time = (CurrentTime + 1)
+
+
+######################################################################
+# Further preferences
+######################################################################
+
+# sync logfile to logfiles instead of copying them after finishing
+stream_error = true
+stream_output = true
+should_transfer_files = IF_NEEDED
+
+# run with user's account
+run_as_owner = True
+load_profile = True
+
+
+
+# number of executions of this job
+queue 1 
+
