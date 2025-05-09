@@ -1,0 +1,67 @@
+# @package _global_
+
+# specify here default configuration
+# order of defaults determines the order in which configs override each other
+defaults:
+  - _self_
+  - data: brats23_patch_tumor_classify_diffusion_new
+  - model: patch_tumor_classify_diffusion_new_one_patch_subset_patches_32
+  - synapse: syn_acc_sritabrata_gmail
+  - callbacks: default
+  ## set logger here or use command line (e.g. `python train.py logger=tensorboard`)
+  - logger: [csv, wandb]
+  #- logger: null
+  - trainer: gpu
+  - paths: default
+  # - extras: default
+  - hydra: default
+
+  # experiment configs allow for version control of specific hyperparameters
+  # e.g. best hyperparameters for given model and datamodule
+  - experiment: null
+
+  # config for hyperparameter optimization
+  - hparams_search: null
+
+  # optional local config for machine/user specific settings
+  # it's optional since it doesn't need to exist and is excluded from version control
+  # - optional local: default
+
+  # debugging config (enable through command line, e.g. `python train.py debug=default)
+  - debug: null
+
+# task name, determines output directory path
+task_name: "predict"
+
+task_tag: "BraTS23-PatchDiffusion-PatchSize=32-Random_Subset_Patches"
+
+# tags to help you identify your experiments
+# you can overwrite this in experiment configs
+# overwrite from command line with `python train.py tags="[first_tag, second_tag]"`
+tags: ['End2End', 'Random Subset Patches', '32']
+
+time: ${now:%Y-%m-%d}_${now:%H-%M-%S}
+
+# set False to skip model training
+train: False
+
+validate: False
+# evaluate on test set, using best model weights achieved during training
+# lightning chooses best weights based on the metric specified in checkpoint callback
+test: False
+
+predict: True
+
+
+ckpt_path: ${paths.log_dir}/BraTS23-PatchDiffusion-PatchSize=32-Random_Subset_Patches/train/runs/2025-01-23_01-04-05/csv/version_0/checkpoints/epoch=179-step=178380.ckpt
+#ckpt_path: ${paths.log_dir}/BraTS23-PatchDiffusion-PatchSize=16-Random_Subset_Patches/train/runs/2025-01-23_00-58-34/csv/version_0/checkpoints/epoch=179-step=178380.ckpt
+#ckpt_path: ${paths.log_dir}/BraTS23-PatchDiffusion-PatchSize_16-PatchesNoise_Different/train/runs/2025-01-10_00-13-13/csv/version_0/checkpoints/epoch=279-step=277480.ckpt
+# simply provide checkpoint path to resume training
+#ckpt_path: '${paths.log_dir}/BraTS23-nnUNET_baseline_0/train/runs/2024-08-08_13-23-09/csv/version_0/checkpoints/epoch=82-step=10292.ckpt'
+##ckpt_path: '${paths.log_dir}/BraTS23-SwinUNETR_baseline_0/train/runs/2024-08-08_17-26-44/csv/version_0/checkpoints/epoch=70-step=17608.ckpt'
+#ckpt_path: '${paths.log_dir}/BraTS23-DiffUNet-roi_96-meantype_xstart-with_deno_loss-no_mse_loss/train/runs/2024-08-15_16-05-12/csv/version_0/checkpoints/epoch=299-step=37200.ckpt'
+#ckpt_path: '${paths.log_dir}/BraTS23-DiffUNet-roi_96-meantype_xstart-with_deno_loss/train/runs/2024-08-14_18-28-27/csv/version_0/checkpoints/epoch=299-step=37200.ckpt'
+#ckpt_path: /home/sanyal/Projects/BraTS3DDiff/logs/bratseg_logs/patch_diffusion/BraTS23-SwinUnetR-512-patch_tumor_classify_diffusion_roi_128_lr=0.001/train/runs/2024-09-27_18-27-30/csv/version_0/checkpoints/epoch=230-step=114576.ckpt
+#ckpt_path: /home/ca550013/Master-Thesis/Projects/BraTS3DDiff/logs/bratseg_logs/patch_diffusion/BraTS23-Patch-Diffusion-512-model-2/train/runs/2024-10-05_02-52-29/csv/version_0/checkpoints/epoch=216-step=107632.ckpt
+# seed for random number generators in pytorch, numpy and python.random
+seed: 123

@@ -1,0 +1,35 @@
+# @package _global_
+
+# specify here default configuration
+# order of defaults determines the order in which configs override each other
+defaults:
+  - _self_
+  - data: null
+  - model: null
+  - callbacks: null
+  - logger: null # set logger here or use command line (e.g. `python train.py logger=csv`)
+  - trainer: null
+  - paths: default
+  - extras: default
+  - hydra: default
+  #- experiment: patch_diffusion_end2end_one_patch_random_subset_patches_16
+  #- experiment: transfer_learning_pretrain/single_patch_GT_tumor_based_patch_selection
+  - experiment: transfer_learning_pretrain/single_patch_GT_tumor_based_patch_selection_range
+
+# task name, determines output directory path
+task_name: "train"
+
+task_tag: null
+
+# tags to help you identify your experiments
+# you can overwrite this in experiment configs
+tags: null
+
+# set False to skip model training
+train: True
+
+test: False
+
+ckpt_path: null
+
+seed: 12345

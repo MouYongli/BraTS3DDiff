@@ -1,0 +1,51 @@
+# @package _global_
+
+# specify here default configuration
+# order of defaults determines the order in which configs override each other
+defaults:
+  - _self_
+  - data: brats23_patch_tumor_classify_diffusion_new
+  - model: patch_tumor_classify_diffusion_new_multi_patch_subset_patches
+  - callbacks: default
+  - logger: [csv, wandb] # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
+  - trainer: gpu
+  - paths: default
+  - extras: default
+  - hydra: default
+
+  # experiment configs allow for version control of specific hyperparameters
+  # e.g. best hyperparameters for given model and datamodule
+  - experiment: null
+
+  # config for hyperparameter optimization
+  - hparams_search: null
+
+  # optional local config for machine/user specific settings
+  # it's optional since it doesn't need to exist and is excluded from version control
+  - optional local: default
+
+  # debugging config (enable through command line, e.g. `python train.py debug=default)
+  - debug: null
+
+# task name, determines output directory path
+task_name: "train"
+
+task_tag: "BraTS23-PatchDiffusion-End2End-PatchSize=16+32-Random_Subset_Patches-No_Mean_Losses"
+
+# tags to help you identify your experiments
+# you can overwrite this in experiment configs
+# overwrite from command line with `python train.py tags="[first_tag, second_tag]"`
+tags: ['End2End', 'Random Subset patches', '16+32', 'No Mean Losses']
+
+
+# set False to skip model training
+train: True
+
+# evaluate on test set, using best model weights achieved during training
+# lightning chooses best weights based on the metric specified in checkpoint callback
+test: False
+
+# simply provide checkpoint path to resume training
+ckpt_path: /home/students/sanyal/Master-Thesis/Projects/BraTS3DDiff/logs/bratseg_logs/patch_diffusion/BraTS23-PatchDiffusion-End2End-PatchSize=16+32-Random_Subset_Patches-No_Mean_Losses/train/runs/2025-02-04_13-53-40/csv/version_0/checkpoints/epoch=64-step=64415.ckpt
+# seed for random number generators in pytorch, numpy and python.random
+seed: 12345

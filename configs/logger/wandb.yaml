@@ -1,0 +1,13 @@
+# https://wandb.ai
+
+wandb:
+  _target_: lightning.pytorch.loggers.WandbLogger
+  save_dir: ${paths.output_dir}
+  name: ${now:%Y-%m-%d}_${now:%H-%M-%S}_${task_name}_run_${task_tag}
+  project: BraTS3DDiff
+  #notes: 'End-to-End patch diffusion training on all of 16+32 patches. All losses included'
+  #tags: ['End2End', 'All patches', '16+32', 'All Loss']
+  #notes: 'End-to-End patch diffusion training on random subset (eps scheduling) of 16+32 patches. Loss is NOT calculated on the mean of the common region'
+  #tags: ['End2End', 'Random patch subset', '16+32', 'No Mean Loss']
+
+

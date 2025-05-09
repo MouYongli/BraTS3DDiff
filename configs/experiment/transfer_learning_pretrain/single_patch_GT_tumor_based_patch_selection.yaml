@@ -1,0 +1,141 @@
+# @package _global_
+
+# to execute this experiment run:
+# python train.py experiment=example
+
+defaults:
+  - override /data: brats23_patch_diffusion_base
+  - override /model: patch_diffusion_base
+  - override /callbacks: default
+  - override /logger: ['csv', 'wandb']
+  - override /trainer: default
+  - override /paths: default
+
+
+# all parameters below will be merged with parameters from default configurations set above
+# this allows you to overwrite only specified parameters
+
+paths:
+  log_dir: ${paths.root_dir}/logs/bratseg_logs/patch_diffusion
+
+logger:
+  wandb:
+    tags: ${tags}
+    project: BraTS3DDiff
+    notes: ${notes}
+
+trainer:
+  accelerator: gpu
+  devices: [0]
+
+
+seed: 12345
+
+task_tag: "Freeze_Pretrained_SwinT-PatchSize=16-UNET=Half-eps=1e-20"
+
+notes: 'Transfer Learning, Freeze pretrained patchify_net, Num samples=128, eps=1e-20, Single Patch=16'
+
+tags: ['Pretrained patchify_net', 'GT tumor based patch selection', 'patch size=16', 'max_num_samples=128', 'unet_features=half', "eps=1e-20"]
+
+#data and model hparams
+roi_size: [128, 128, 128]
+
+seg_patch_size: 16
+seg_patch_size_: [16]
+patch_emb_size: 6
+patch_emb_size_: [6]
+
+unet_features: [32, 32, 64, 128, 256, 32]
+
+num_samples: 128
+#range_num_samples: [32, 128]
+
+ckpt_path: null
+pretrain_patchify_net_ckpt: /home/students/sanyal/Master-Thesis/Projects/BraTS3DDiff/logs/bratseg_logs/patch_classify/BraTS23-Patch-Classify-New-2/train/runs/2025-01-10_01-05-38/csv/version_0/checkpoints/epoch=99-step=99100.ckpt
+
+
+data:
+  _target_: src.datasets.patch_tumor_classify_diffusion_datamodule_new_new.BraTSDataModule
+  batch_size: 1
+  patch_sizes: ${seg_patch_size_}
+  roi_size: ${roi_size}
+  num_workers: 1 ##change later
+
+model:
+  _target_: src.models.lit_modules.transfer_learning.pretrain_single_patch_GT_tumor_based_patch_selection_module.BraTSPatchTumorDiffusionLitModule
+
+  patchify_net:
+    _target_: src.models.networks.swinunetr.swinunetr_enc_1x1_conv.NewSwinUNETREnc128
+    img_size: ${data.roi_size}
+    in_channels: ${data.num_modalities}
+    out_channels: 1
+    depths: [2, 4, 2, 2]
+    num_heads: [3, 6, 12, 24]
+    feature_size: 24
+    norm_name: "instance"
+    drop_rate: 0.0
+    attn_drop_rate: 0.0
+    dropout_path_rate: 0.0
+    normalize: True
+    use_checkpoint: False
+    spatial_dims: 3
+    downsample: "merging"
+    use_v2: False
+    clamp_out: false
+
+  patch_up_net:
+    _target_: src.models.networks.patch_unet.patch_enc.PatchUpsample
+    in_sizes: ${patch_emb_size_}
+    out_sizes: ${seg_patch_size_}
+    in_channels: 1
+    out_channels: 1
+    ups:
+      - _target_: src.models.networks.patch_unet.ups.Up6to16
+        spatial_dims: 3
+        in_chns: 1
+        out_chns: 1
+        act: LeakyReLU
+        norm: instance
+        bias: True
+        dropout: 0.0
+
+  patch_emb_net:
+    _target_: src.models.networks.patch_unet.patch_enc.PatchUNetEncoder
+    spatial_dims: 3
+    in_channels: 1
+    features: ${unet_features}
+    act: LeakyReLU
+    norm: instance
+    bias: True
+    dropout: 0.0
+
+  patch_denoise_net:
+    _target_: src.models.networks.patch_unet.patch_unet_denoise.PatchDenoiseUNet
+    spatial_dims: 3
+    in_channels: ${eval:'${data.num_targets} + 1'}
+    out_channels: ${data.num_targets}
+    features: ${unet_features}
+    act: LeakyReLU
+    norm: instance
+    dropout: 0.0
+    upsample: deconv
+
+  inferer:
+    _target_: monai.inferers.SlidingWindowInferer
+    roi_size: ${roi_size}
+    sw_batch_size: 2
+    overlap: 0.50
+
+  extra_kwargs:
+    seg_patch_size: ${seg_patch_size}
+    patch_emb_size: ${patch_emb_size}
+    patch_thresh: 0.70
+    log_grad_norm_freq: 1000
+    num_samples: ${num_samples}
+    pretrain_ckpt: ${pretrain_patchify_net_ckpt}
+
+
+
+
+
+
